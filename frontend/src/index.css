@@ -1,0 +1,224 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'SF Mono', 'SFMono-Regular', ui-monospace, Menlo, Monaco, Consolas, monospace;
+  --font-mono: 'SF Mono', 'SFMono-Regular', ui-monospace, Menlo, Monaco, Consolas, monospace;
+  --font-display: 'SF Pro Display', 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  --color-ink: #080908;
+  --color-ink-soft: #111311;
+  --color-surface: #171a17;
+  --color-border: #30342f;
+  --color-mist: #9a9f98;
+  --color-paper: #f0f1ed;
+
+  --color-azure: #d6a959;
+  --color-azure-deep: #8b692e;
+  --color-emerald: #91c47b;
+  --color-danger: #ff7b72;
+  --color-warning: #e8bd67;
+
+  --animate-marquee: marquee 32s linear infinite;
+  --animate-float: float 7s ease-in-out infinite;
+  --animate-pulse-soft: pulse-soft 3s ease-in-out infinite;
+  --animate-fade-in-down: fade-in-down 0.25s ease-out;
+  --animate-fade-in: fade-in 0.3s ease-out;
+}
+
+/*
+ * Light theme overrides. Dark is the default palette declared in @theme above;
+ * setting data-theme="light" on <html> (see themeStore.ts / index.html's
+ * pre-paint script) swaps every token that consumes these custom properties —
+ * Tailwind v4 compiles color utilities to var(--color-*), so no class changes
+ * are needed anywhere else.
+ */
+:root[data-theme='light'] {
+  --color-ink: #e9e9e4;
+  --color-ink-soft: #dedfd9;
+  --color-surface: #d3d5ce;
+  --color-border: #aaada6;
+  --color-mist: #545852;
+  --color-paper: #151714;
+
+  --color-azure: #986b20;
+  --color-azure-deep: #765018;
+  --color-emerald: #3e7c38;
+  --color-danger: #dc2626;
+  --color-warning: #b45309;
+}
+
+html {
+  scroll-behavior: auto;
+  color-scheme: dark;
+}
+
+html[data-theme='light'] {
+  color-scheme: light;
+}
+
+body {
+  font-family: 'Space Mono', monospace;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+h1, h2, h3, h4, .font-display {
+  font-family: var(--font-display);
+}
+
+.font-logo {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+::selection {
+  background: var(--color-azure);
+  color: #fff;
+}
+
+/* Keyboard-only focus ring — visible on tab navigation, silent on mouse clicks */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--color-emerald);
+  outline-offset: 2px;
+}
+
+/* Custom Hacker Terminal Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-ink);
+  border-left: 1px solid var(--color-border);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border: 1px solid var(--color-ink-soft);
+  border-radius: 0px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-mist);
+}
+
+/* Shared premium surface utilities */
+.text-gradient {
+  /* All three stops are tokens, so this repaints correctly under any palette
+     or theme swap without a separate light-mode override. */
+  background: linear-gradient(105deg, var(--color-paper) 20%, var(--color-paper) 52%, var(--color-emerald) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.glass {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(18px) saturate(0.8);
+}
+
+:root[data-theme='light'] .glass {
+  background: linear-gradient(180deg, rgba(20, 19, 26, 0.035), rgba(20, 19, 26, 0.012));
+  border: 1px solid rgba(20, 19, 26, 0.09);
+}
+
+.grid-fade {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 40%, transparent 100%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 40%, transparent 100%);
+}
+
+:root[data-theme='light'] .grid-fade {
+  background-image:
+    linear-gradient(to right, rgba(20, 19, 26, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(20, 19, 26, 0.06) 1px, transparent 1px);
+}
+
+.noise::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Shared macOS terminal chrome. Used for product previews and data surfaces. */
+.terminal-window {
+  border: 1px solid color-mix(in srgb, var(--color-border) 88%, white 12%);
+  border-radius: 14px;
+  background: linear-gradient(150deg, color-mix(in srgb, var(--color-ink-soft) 94%, white 6%), var(--color-ink));
+  box-shadow: 0 28px 80px rgba(0, 0, 0, .4), inset 0 1px rgba(255,255,255,.05);
+}
+
+.terminal-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--color-border);
+  background: rgba(255,255,255,.035);
+}
+
+.terminal-dot { width: 11px; height: 11px; border-radius: 999px; }
+.terminal-dot.red { background: #ff5f57; }
+.terminal-dot.yellow { background: #febc2e; }
+.terminal-dot.green { background: #28c840; }
+.terminal-title { margin-left: 5px; color: var(--color-mist); font-size: 10px; letter-spacing: .08em; }
+.terminal-prompt::before { content: '❯ '; color: var(--color-emerald); }
+
+@media (max-width: 640px) {
+  .terminal-window { border-radius: 10px; }
+}
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-18px) rotate(3deg); }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@keyframes fade-in-down {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Lenis smooth-scroll state classes (landing page only) */
+html.lenis, html.lenis body {
+  height: auto;
+}
+
+.lenis.lenis-smooth {
+  scroll-behavior: auto;
+}
+
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
