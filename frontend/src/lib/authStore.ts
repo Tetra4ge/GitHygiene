@@ -22,14 +22,10 @@ export const useAuthStore = create<AuthState>((set) => ({
   setSession: (session) => {
     // provider_token is only present on the initial OAuth redirect, not on later
     // token refreshes — persist it so GitHub-backed calls survive a page reload.
-    // It holds whichever provider was just used, though — signing in with Google
-    // would otherwise clobber a previously-stored, still-valid GitHub token with
-    // a Google one. Only trust it as a GitHub token when Login.tsx's pre-redirect
-    // flag confirms this OAuth round trip was actually the GitHub button.
-    if (session?.provider_token && sessionStorage.getItem('githygiene.oauth-provider') === 'github') {
+    // GitHub is the only OAuth provider, so it's always safe to treat it as one.
+    if (session?.provider_token) {
       githubToken.set(session.provider_token);
     }
-    sessionStorage.removeItem('githygiene.oauth-provider');
     set({
       session,
       user: session?.user || null,

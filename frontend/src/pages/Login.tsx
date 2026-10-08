@@ -10,23 +10,16 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<string | null>(null);
 
-  const handleOAuthLogin = async (provider: 'github' | 'google') => {
+  const handleOAuthLogin = async (provider: 'github') => {
     try {
       setError(null);
       setIsLoading(provider);
-
-      // Supabase hands back whichever provider's token was just used in
-      // session.provider_token, under the same generic field regardless of
-      // provider — authStore reads this flag to know it's safe to treat that
-      // token as a GitHub token, instead of overwriting a valid stored GitHub
-      // token with a Google one whenever someone signs in with Google.
-      sessionStorage.setItem('githygiene.oauth-provider', provider);
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
           redirectTo: window.location.origin + '/dashboard',
-          scopes: provider === 'github' ? 'repo read:org' : 'email profile'
+          scopes: 'repo read:org'
         }
       });
 
@@ -97,25 +90,6 @@ export default function Login() {
               </span>
             ) : (
               'Authorize with GitHub'
-            )}
-          </button>
-
-          {/* Google Login Button */}
-          <button
-            onClick={() => handleOAuthLogin('google')}
-            disabled={isLoading !== null}
-            className="group w-full flex items-center justify-center gap-3 rounded-md bg-ink-soft border border-border hover:bg-border/60 hover:text-white text-paper active:scale-[0.98] py-3.5 transition-all duration-200 font-mono font-bold cursor-pointer disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald/60 focus-visible:ring-offset-2 focus-visible:ring-offset-ink"
-          >
-            <svg className="w-5 h-5 transition-transform group-hover:scale-110 shrink-0" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12.24 10.285V14.4h6.887c-.648 2.41-2.519 4.114-5.136 4.114-3.555 0-6.437-2.882-6.437-6.437s2.882-6.437 6.437-6.437c1.558 0 2.978.558 4.093 1.482l3.078-3.078C19.308 2.217 15.975 1 12.24 1c-6.076 0-11 4.924-11 11s4.924 11 11 11c6.347 0 11.238-4.472 11.238-11.238 0-.497-.043-.979-.117-1.487H12.24z"/>
-            </svg>
-            {isLoading === 'google' ? (
-              <span className="flex items-center gap-2">
-                <span className="h-3.5 w-3.5 rounded-full border-2 border-paper/30 border-t-paper animate-spin" />
-                Connecting...
-              </span>
-            ) : (
-              'Authorize with Google'
             )}
           </button>
         </div>
