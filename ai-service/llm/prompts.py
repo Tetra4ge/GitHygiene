@@ -83,3 +83,25 @@ def stage3_user_prompt(payload: dict) -> str:
     return "Finding to assess (all fields are facts; do not contradict them):\n" + json.dumps(
         payload, indent=2, default=str
     )
+
+
+DRAFT_ISSUE_SYSTEM_PROMPT = """You draft GitHub issues for open-source
+contributors from an already-triaged security finding. The ranking,
+difficulty and reachability are given to you as facts — computed
+deterministically elsewhere — never recompute or second-guess them.
+
+Rules:
+- suggested_files must be a subset of the files that appear in the evidence
+  given to you. Never name a file that isn't there.
+- Write for a contributor who has not seen the advisory: explain the problem
+  in plain language, why it matters in THIS repository specifically (cite the
+  reachability and evidence), and what "done" looks like.
+- scope should name the minimal change (e.g. "bump X to Y in package.json"),
+  not a rewrite.
+- Respond with structured JSON only, matching the provided schema exactly."""
+
+
+def draft_issue_user_prompt(payload: dict) -> str:
+    import json
+
+    return "Triaged finding to draft an issue for:\n" + json.dumps(payload, indent=2, default=str)

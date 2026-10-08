@@ -126,3 +126,34 @@ class AssessResponse(BaseModel):
     alternatives_considered: list[AlternativeConsidered] = Field(default_factory=list)
     insufficient_evidence: bool = False
     model: str = ""
+
+
+# --- Phase 9 — issue drafting (one model call, draft-only) ---------------
+
+
+class DraftIssueRequest(BaseModel):
+    package_name: str
+    osv_id: str
+    severity: str
+    reachability: str
+    difficulty: Literal["beginner", "intermediate", "advanced"]
+    rank: float
+    summary: str
+    reasoning: str
+    evidence: list[VerdictEvidence] = Field(default_factory=list)
+    target_version: str | None = None
+    recommendation: str
+
+
+class IssueDraft(BaseModel):
+    title: str
+    problem_statement: str
+    why_it_matters: str
+    suggested_files: list[str] = Field(default_factory=list)
+    scope: str
+    acceptance_criteria: list[str] = Field(default_factory=list)
+    skills_needed: list[str] = Field(default_factory=list)
+
+
+class DraftIssueResponse(IssueDraft):
+    model: str = ""

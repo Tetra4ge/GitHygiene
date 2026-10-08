@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes.surface import router as surface_router
 from api.routes.assess import router as assess_router
+from api.routes.draft_issue import router as draft_issue_router
 from core.config import settings
 
 app = FastAPI(
@@ -28,6 +29,7 @@ app.add_middleware(
 
 app.include_router(surface_router, tags=["Engine"])
 app.include_router(assess_router, tags=["Engine"])
+app.include_router(draft_issue_router, tags=["Engine"])
 
 
 @app.get("/health", tags=["Health"])

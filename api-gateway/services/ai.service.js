@@ -48,4 +48,18 @@ async function assess(payload) {
   }
 }
 
-module.exports = { extractSurface, assess, AiServiceError };
+async function draftIssue(payload) {
+  try {
+    const { data } = await axios.post(`${aiServiceUrl()}/v1/draft-issue`, payload, {
+      timeout: AI_REQUEST_TIMEOUT_MS
+    });
+    return data;
+  } catch (err) {
+    if (err.response) {
+      throw new AiServiceError(err.response.data?.detail || err.message, err.response.status);
+    }
+    throw new AiServiceError(`ai-service unreachable: ${err.message}`, 503);
+  }
+}
+
+module.exports = { extractSurface, assess, draftIssue, AiServiceError };

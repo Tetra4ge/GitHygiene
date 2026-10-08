@@ -7,6 +7,7 @@ import type {
   Dependency,
   DependencyFile,
   GitHubRepo,
+  IssueDraft,
   Notification,
   Organization,
   OrgMember,
@@ -225,6 +226,12 @@ export const aiApi = {
   assess: async (input: AssessInput): Promise<AssessmentResult> => {
     const { data } = await api.post<ApiEnvelope<AssessmentResult>>('/ai/assess', input, {
       headers: githubHeaders()
+    });
+    return data.data;
+  },
+  draftIssue: async (assessmentId: string): Promise<IssueDraft> => {
+    const { data } = await api.post<ApiEnvelope<IssueDraft>>('/ai/draft-issue', {
+      assessment_id: assessmentId
     });
     return data.data;
   }

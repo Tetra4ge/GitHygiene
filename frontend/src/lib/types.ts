@@ -154,6 +154,17 @@ export interface AssessmentRemediation {
   files_to_change: string[];
 }
 
+export interface IssueDraft {
+  title: string;
+  problem_statement: string;
+  why_it_matters: string;
+  suggested_files: string[];
+  scope: string;
+  acceptance_criteria: string[];
+  skills_needed: string[];
+  model: string;
+}
+
 export interface AssessmentResult {
   assessment_id: string;
   osv_id: string;

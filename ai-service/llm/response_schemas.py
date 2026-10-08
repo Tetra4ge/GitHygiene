@@ -94,3 +94,17 @@ STAGE3_RESPONSE_SCHEMA = {
         "insufficient_evidence",
     ],
 }
+
+DRAFT_ISSUE_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "problem_statement": {"type": "string"},
+        "why_it_matters": {"type": "string"},
+        "suggested_files": {"type": "array", "items": {"type": "string"}},
+        "scope": {"type": "string"},
+        "acceptance_criteria": {"type": "array", "items": {"type": "string"}},
+        "skills_needed": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["title", "problem_statement", "why_it_matters", "suggested_files", "scope", "acceptance_criteria"],
+}

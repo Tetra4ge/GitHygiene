@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ShieldAlert, ShieldCheck, Radar, ExternalLink, Sparkles } from 'lucide-react';
 import { aiApi, apiError, osvApi, scannerApi } from '../../lib/api';
-import type { AssessmentResult, OsvFinding, OsvScanResult, Repository, SecurityAlert } from '../../lib/types';
+import type { AssessmentResult, IssueDraft, OsvFinding, OsvScanResult, Repository, SecurityAlert } from '../../lib/types';
 import { Alert, Button, Field, Panel, Table } from './primitives';
 
 const REACHABILITY_LABEL: Record<string, string> = {
@@ -53,6 +53,21 @@ export default function SecurityPanel({ selectedRepo }: { selectedRepo: Reposito
   const [assessingId, setAssessingId] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [activeVerdict, setActiveVerdict] = useState<{ finding: OsvFinding; result: AssessmentResult } | null>(null);
+  const [drafting, setDrafting] = useState(false);
+  const [issueDraft, setIssueDraft] = useState<IssueDraft | null>(null);
+
+  const handleDraftIssue = async () => {
+    if (!activeVerdict) return;
+    setDrafting(true);
+    setAiError(null);
+    try {
+      setIssueDraft(await aiApi.draftIssue(activeVerdict.result.assessment_id));
+    } catch (err) {
+      setAiError(apiError(err));
+    } finally {
+      setDrafting(false);
+    }
+  };
 
   const handleAssess = async (finding: OsvFinding) => {
     if (!owner) {
@@ -64,6 +79,7 @@ export default function SecurityPanel({ selectedRepo }: { selectedRepo: Reposito
     try {
       const result = await aiApi.assess({ finding_id: finding.finding_id, owner });
       setActiveVerdict({ finding, result });
+      setIssueDraft(null);
     } catch (err) {
       setAiError(apiError(err));
     } finally {
@@ -326,6 +342,64 @@ export default function SecurityPanel({ selectedRepo }: { selectedRepo: Reposito
               AI-generated — static search, not a reachability guarantee. "No evidenced call path" means
               nothing was found, not that the code is safe.
             </p>
+
+            <div className="border-t border-border/50 pt-4 flex flex-col gap-3">
+              <Button onClick={() => void handleDraftIssue()} loading={drafting}>
+                <Sparkles size={13} />
+                Draft a contributor issue
+              </Button>
+
+              {issueDraft && (
+                <div className="border border-border/70 p-3 flex flex-col gap-2">
+                  <span className="text-paper font-bold">{issueDraft.title}</span>
+                  <p className="text-mist leading-relaxed">{issueDraft.problem_statement}</p>
+                  <p className="text-mist leading-relaxed">
+                    <span className="text-paper font-bold">Why it matters: </span>
+                    {issueDraft.why_it_matters}
+                  </p>
+                  <p className="text-mist leading-relaxed">
+                    <span className="text-paper font-bold">Scope: </span>
+                    {issueDraft.scope}
+                  </p>
+                  {issueDraft.suggested_files.length > 0 && (
+                    <div>
+                      <span className="text-paper font-bold">Suggested files: </span>
+                      <span className="text-azure">{issueDraft.suggested_files.join(', ')}</span>
+                    </div>
+                  )}
+                  {issueDraft.acceptance_criteria.length > 0 && (
+                    <div>
+                      <span className="text-paper font-bold">Acceptance criteria:</span>
+                      <ul className="list-disc list-inside text-mist">
+                        {issueDraft.acceptance_criteria.map((c, i) => (
+                          <li key={i}>{c}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <Button
+                    onClick={() => {
+                      const body = [
+                        issueDraft.problem_statement,
+                        '',
+                        `**Why it matters:** ${issueDraft.why_it_matters}`,
+                        '',
+                        `**Scope:** ${issueDraft.scope}`,
+                        issueDraft.suggested_files.length
+                          ? `\n**Suggested files:** ${issueDraft.suggested_files.join(', ')}`
+                          : '',
+                        issueDraft.acceptance_criteria.length
+                          ? `\n**Acceptance criteria:**\n${issueDraft.acceptance_criteria.map((c) => `- ${c}`).join('\n')}`
+                          : ''
+                      ].join('\n');
+                      void navigator.clipboard.writeText(`${issueDraft.title}\n\n${body}`);
+                    }}
+                  >
+                    Copy to clipboard
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
         </Panel>
       )}

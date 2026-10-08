@@ -12,6 +12,7 @@ const evidence = require('../services/evidence.service');
 const graph = require('../services/graph.service');
 const { buildPatch } = require('../services/remediation.service');
 const { majorVersion } = require('../services/scoring.service');
+const { rankFindings } = require('../services/ranking.service');
 
 async function assertRepoAccess(userId, repositoryId) {
   const caller = await getCallerContext(userId);
@@ -338,4 +339,75 @@ function formatAssessmentRow(row) {
   };
 }
 
-module.exports = { extractSurface, assessFinding };
+/**
+ * POST /ai/draft-issue { assessment_id } — Phase 9 §4. Draft-only: this never
+ * calls GitHub's issues API (AGENTS.md, CLAUDE.md §13, TRD §11).
+ */
+const draftIssue = async (req, res) => {
+  const { assessment_id } = req.body;
+  const userId = req.user.sub || req.user.user_id;
+
+  if (!assessment_id) {
+    return res.status(400).json({ success: false, message: 'Missing required parameter: assessment_id.' });
+  }
+
+  try {
+    await ensureAiSchema();
+
+    const row = await pgPool.query(
+      `SELECT a.*, d.package_name, d.is_direct, d.current_version, d.latest_version,
+              f.fixed_version, ov.severity, ov.summary
+       FROM ai_assessments a
+       JOIN dependencies d ON d.dependency_id = a.dependency_id
+       JOIN osv_findings f ON f.osv_id = a.osv_id AND f.dependency_id = a.dependency_id AND f.repository_id = a.repository_id
+       JOIN osv_vulnerabilities ov ON ov.osv_id = a.osv_id
+       WHERE a.assessment_id = $1`,
+      [assessment_id]
+    );
+    if (row.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Assessment not found. Run an assessment first.' });
+    }
+    const a = row.rows[0];
+
+    if (!(await assertRepoAccess(userId, a.repository_id))) {
+      return res.status(404).json({ success: false, message: 'Repository not found or not accessible.' });
+    }
+
+    const verdict = a.response;
+    const installedMajor = majorVersion(a.current_version);
+    const fixedMajor = majorVersion(a.fixed_version);
+    const [ranked] = rankFindings([
+      {
+        severity: a.severity,
+        reachability: verdict.reachability,
+        isDirect: a.is_direct,
+        fixPublished: Boolean(a.fixed_version),
+        majorVersionsBehind:
+          installedMajor !== null && fixedMajor !== null ? Math.max(0, fixedMajor - installedMajor) : null,
+        callSiteCount: a.evidence?.call_sites?.length ?? null,
+        blastRadiusCount: 1
+      }
+    ]);
+
+    const draft = await ai.draftIssue({
+      package_name: a.package_name,
+      osv_id: a.osv_id,
+      severity: a.severity,
+      reachability: verdict.reachability,
+      difficulty: ranked.difficulty,
+      rank: ranked.rank,
+      summary: a.summary,
+      reasoning: verdict.reasoning,
+      evidence: verdict.evidence || [],
+      target_version: verdict.target_version,
+      recommendation: verdict.recommendation
+    });
+
+    return res.status(200).json({ success: true, data: draft });
+  } catch (error) {
+    const status = error.status === 503 ? 503 : error.status === 502 ? 502 : 500;
+    return res.status(status).json({ success: false, message: 'Issue drafting failed.', error: error.message });
+  }
+};
+
+module.exports = { extractSurface, assessFinding, draftIssue };
