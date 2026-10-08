@@ -5,6 +5,7 @@ const { lookupLatestVersions } = require('../services/registry.service');
 const { computeScore } = require('../services/scoring.service');
 const { ensureOsvSchema } = require('../utils/schema-migrations.util');
 const graph = require('../services/graph.service');
+const { createNotification } = require('../utils/dashboard-schema.util');
 
 /** Re-reads everything this repository needs from Postgres and writes it to Neo4j. */
 async function writeGraphForRepository(repositoryId) {
@@ -187,6 +188,7 @@ const runOsvScan = async (req, res) => {
 
     // 4. Write osv_findings, one per (dependency, advisory) pair.
     let newFindings = 0;
+    let newCriticalOrHigh = 0;
     for (const dep of queryable) {
       const key = `${dep.ecosystem}:${dep.package_name}@${dep.current_version}`;
       const ids = batchResults.get(key) || [];
@@ -201,7 +203,10 @@ const runOsvScan = async (req, res) => {
            RETURNING finding_id`,
           [repository_id, dep.dependency_id, osvId, fixedVersion]
         );
-        if (inserted.rows.length) newFindings += 1;
+        if (inserted.rows.length) {
+          newFindings += 1;
+          if (advisory.severity === 'CRITICAL' || advisory.severity === 'HIGH') newCriticalOrHigh += 1;
+        }
       }
     }
 
@@ -264,6 +269,38 @@ const runOsvScan = async (req, res) => {
       [score, riskLevel, breakdown, repository_id]
     );
 
+    // Notifications (Phase 9 §6) — prefer a reachability-aware message over a
+    // raw count where one is known; reachability isn't computed at scan time
+    // (that's Phase 8, on demand per finding), so this is the honest count
+    // available here: new critical/high findings this scan actually raised.
+    try {
+      const repoRow = await pgPool.query(
+        `SELECT r.repo_name, p.organization_id FROM repositories r JOIN projects p ON r.project_id = p.project_id WHERE r.repository_id = $1`,
+        [repository_id]
+      );
+      if (repoRow.rows.length) {
+        const { repo_name, organization_id } = repoRow.rows[0];
+        await createNotification({
+          organizationId: organization_id,
+          repositoryId: repository_id,
+          type: 'scan_completed',
+          title: `Scan completed for ${repo_name}`,
+          body: `Score ${score}/100 (${riskLevel}). ${allIds.size} advisories found, ${newFindings} new.`
+        });
+        if (newCriticalOrHigh > 0) {
+          await createNotification({
+            organizationId: organization_id,
+            repositoryId: repository_id,
+            type: 'critical_findings',
+            title: `${newCriticalOrHigh} new critical/high vulnerabilit${newCriticalOrHigh === 1 ? 'y' : 'ies'} in ${repo_name}`,
+            body: 'Open the Security tab to see which ones and run the AI reachability check.'
+          });
+        }
+      }
+    } catch (notifyErr) {
+      console.error('Notification write failed (scan still succeeded):', notifyErr.message);
+    }
+
     // 7. Write to the dependency graph (Phase 6). Never fails the scan —
     //    graph writes are supporting infrastructure, logged and skipped on error.
     try {
@@ -296,6 +333,21 @@ const runOsvScan = async (req, res) => {
         `UPDATE repositories SET last_scan_error = $1, last_scanned_at = NOW() WHERE repository_id = $2`,
         [error.message, repository_id]
       );
+    } catch (_) {}
+    try {
+      const repoRow = await pgPool.query(
+        `SELECT r.repo_name, p.organization_id FROM repositories r JOIN projects p ON r.project_id = p.project_id WHERE r.repository_id = $1`,
+        [repository_id]
+      );
+      if (repoRow.rows.length) {
+        await createNotification({
+          organizationId: repoRow.rows[0].organization_id,
+          repositoryId: repository_id,
+          type: 'scan_failed',
+          title: `Scan failed for ${repoRow.rows[0].repo_name}`,
+          body: error.message
+        });
+      }
     } catch (_) {}
     return res.status(500).json({
       success: false,
