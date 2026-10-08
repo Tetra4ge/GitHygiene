@@ -315,9 +315,9 @@ The demo covers: sign in → import → scan → vulnerability findings with sco
 
 ### AI / Models
 
-- **Gemma 4 (`gemma-4-26b-a4b-it`)** — Stage 1: extracts vulnerable symbols, subpaths, and trigger conditions from OSV advisory text using structured output (JSON schema-constrained generation).
-- **Gemma 4 (`gemma-4-31b-it`)** — Stage 3: judges whether the repository's code actually reaches the vulnerable surface, recommends remediation, and identifies files to change. Also used for drafting contributor-ready GitHub issues.
-- **Gemini API** — the inference provider for both Gemma 4 models; structured output mode (`responseMimeType: application/json`) ensures every response validates against a Pydantic schema.
+- **[Gemma 4](https://ai.google.dev/gemma/docs) (`gemma-4-26b-a4b-it`)** — Stage 1: extracts vulnerable symbols, subpaths, and trigger conditions from OSV advisory text using structured output (JSON schema-constrained generation). Licence: [Gemma Terms of Use](https://ai.google.dev/gemma/terms).
+- **[Gemma 4](https://ai.google.dev/gemma/docs) (`gemma-4-31b-it`)** — Stage 3: judges whether the repository's code actually reaches the vulnerable surface, recommends remediation, and identifies files to change. Also used for drafting contributor-ready GitHub issues. Licence: [Gemma Terms of Use](https://ai.google.dev/gemma/terms).
+- **[Gemini API](https://ai.google.dev/gemini-api/docs)** — the inference provider for both Gemma 4 models; structured output mode (`responseMimeType: application/json`) ensures every response validates against a Pydantic schema.
 
 ### Open Source Components
 
