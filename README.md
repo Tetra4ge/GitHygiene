@@ -314,9 +314,10 @@ Sign in with GitHub, import any repository, and run a scan. The scanner works on
 
 ## Demo Video
 
-**Demo Video:** [Video URL]
+**Demo Video:** [https://youtu.be/d-u_tdBHLm0](https://youtu.be/d-u_tdBHLm0)
 
 The demo covers: sign in → import → scan → vulnerability findings with score → blast radius across repositories → AI reachability verdict → draft GitHub issue.
+
 
 ---
 
