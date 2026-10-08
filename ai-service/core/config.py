@@ -9,6 +9,8 @@ primary inference path. OPENROUTER_API_KEY, if set, is a fallback only and
 must never be described as the primary path.
 """
 
+from typing import Optional
+
 from pydantic_settings import BaseSettings
 
 
@@ -16,7 +18,7 @@ class Settings(BaseSettings):
     PORT: int = 8000
 
     # Primary path — Gemini API with Gemma 4 models (AI_DESIGN.md §7.1).
-    GEMINI_API_KEY: str | None = None
+    GEMINI_API_KEY: Optional[str] = None
     GEMMA_MODEL_EXTRACT: str = "gemma-4-26b-a4b-it"
     GEMMA_MODEL_REASON: str = "gemma-4-31b-it"
 
@@ -27,7 +29,7 @@ class Settings(BaseSettings):
 
     # Fallback only, demoted per AI_DESIGN.md §7.1 — never the documented
     # primary path.
-    OPENROUTER_API_KEY: str | None = None
+    OPENROUTER_API_KEY: Optional[str] = None
 
     GEMINI_TIMEOUT_SECONDS: int = 60
 
