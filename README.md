@@ -1,19 +1,19 @@
 # GitHygiene
 
 Most dependency scanners tell you which advisories exist somewhere in your
-dependency tree. GitHygiene is being built to answer the question that follows:
-**does this one actually matter in my code?** It reads the advisory, finds
-whether the function it blames is really called in your repository, shows you
-the line, and tells you whether to upgrade, replace, mitigate or accept it.
+dependency tree. GitHygiene answers the question that follows: **does this
+one actually matter in my code?** It reads the advisory, checks whether the
+function it blames is really called in your repository, shows you the file
+and the line, and tells you whether to upgrade, replace, mitigate or accept
+it — citing real code the whole way.
 
 Built for **Hacktoberfest Hack Day — Coimbatore 2026** (INIT CLUB × iDEA CLUB,
 in collaboration with MLH).
 
 > **A note on this README.** It separates what is **built** from what is
-> **planned**, and never lists a plan as a feature. The AI engine described in §4
-> is specified in [docs/AI_DESIGN.md](docs/AI_DESIGN.md) and is **not
-> implemented yet** — §9 tracks every gap. Sections marked _(planned)_ must be
-> rewritten in the past tense only once the code exists, per `AGENTS.md` §6.
+> **planned**, and never lists a plan as a feature. §9 tracks every remaining
+> gap honestly, including the parts of the original plan (local Ollama mode,
+> PR risk analysis, trend charts, actual deployment) that did not make it in.
 
 ---
 
@@ -54,20 +54,36 @@ A signed-in user (GitHub OAuth through Supabase Auth) belongs to an
 1. **Sync repositories** from GitHub into a project (`POST /api/v1/repos/sync`).
 2. **Ingest a manifest** (`package.json` or `requirements.txt`) from the GitHub
    Contents API into Supabase Storage (`POST /api/v1/manifests/ingest`).
-3. **Extract dependencies** into the `dependencies` table, resolving exact
-   versions from a lockfile where one is reachable (`POST /api/v1/parser/extract`).
-4. **Scan** dependencies and raise `security_alerts` (`POST /api/v1/scanner/scan`).
-5. **Review and resolve alerts**, scoped to your organization.
+3. **Extract the full dependency tree** — direct *and* transitive packages,
+   walked from `package-lock.json` (lockfile v2/v3) with the parent→child
+   edges that make the graph and the reachability engine possible, or pinned
+   versions from `requirements.txt` for Python (`POST /api/v1/parser/extract`).
+4. **Scan against real osv.dev advisories** by exact package + version —
+   severity, full advisory text, fixed version — and compute a 0–100
+   repository security score (`POST /api/v1/osv/scan`). The original
+   seeded-CVE/`ILIKE` scanner from the first build is kept running alongside
+   it, unchanged (`POST /api/v1/scanner/scan`).
+5. **Write the dependency graph to Neo4j** — packages shared across
+   repositories, with blast-radius and shortest-path queries
+   (`GET /api/v1/graph/*`).
+6. **Run the two-stage AI reachability engine** on any finding — extract
+   which functions an advisory blames, search this repository's own source
+   for real calls to them, and get a cited verdict plus a remediation patch
+   (`POST /api/v1/ai/assess`). See §4.
+7. **Draft a contributor issue** from a ranked finding, one model call,
+   copy-to-clipboard only — the platform never opens an issue itself
+   (`POST /api/v1/ai/draft-issue`).
+8. **Dashboard, fix-first ranking and notifications** — vulnerabilities
+   broken down by severity *and* by reachability, a deterministic fix-first
+   list, riskiest repositories, and a notification bell for scan events
+   (`GET /api/v1/dashboard/summary`, `GET /api/v1/notifications`).
 
 Role-based access runs throughout: every query is scoped to the caller's
 organization through a shared `getCallerContext` helper, with an `admin` role
 that sees across organizations and a `manager` role that can create
 organizations and manage membership.
 
-**Planned** — real OSV advisory data (the current scan matches CVE descriptions
-by string, see §9), then the analysis engine in §4.
-
-## 4. Innovation and Differentiation _(planned — see §9)_
+## 4. Innovation and Differentiation
 
 ### The engine
 
@@ -122,16 +138,17 @@ frontend/      React 19 + Vite + Tailwind CSS — dashboard UI
                  ├── Supabase Auth (GitHub OAuth)
                  └── REST calls to api-gateway
 
-api-gateway/   Express 5 — REST API, owns all database access
+api-gateway/   Express 5 — REST API, owns all database access, GitHub tokens, RBAC
                  ├── Supabase Auth JWKS (verifies session tokens)
                  ├── Supabase Storage (manifest file storage)
-                 ├── PostgreSQL via `pg`
-                 ├── Neo4j driver (connected; health-checked only — see §9)
-                 ├── GitHub REST API (repo listing, manifests, lockfiles)
-                 └── ai-service (planned: assembles context, posts it on)
+                 ├── PostgreSQL via `pg` — scans, dependencies, findings, caches
+                 ├── Neo4j driver — writes the dependency graph after every OSV scan
+                 ├── osv.dev, npm registry, PyPI JSON API
+                 ├── GitHub REST API (repo listing, manifests, lockfiles, tarballs)
+                 └── ai-service — assembles context, posts it, never sends a DB credential
 
-ai-service/    FastAPI (Python) — scaffolded, not implemented (see §9)
-                 └── planned: Gemini API → Gemma 4 (prompts and model calls only)
+ai-service/    FastAPI (Python) — prompts and model calls only, no database access
+                 └── Gemini API → Gemma 4 (POST /v1/extract-surface, /v1/assess, /v1/draft-issue)
 ```
 
 The client never talks to Postgres, Neo4j or GitHub directly. `ai-service` holds
@@ -146,22 +163,26 @@ no model key.
 | Backend | Node.js, Express 5 |
 | Auth | Supabase Auth (GitHub OAuth), verified server-side against Supabase's JWKS (`jose`) |
 | Database | PostgreSQL via `pg` (connection pool), no ORM |
-| Graph DB | Neo4j via `neo4j-driver` — connected, not yet used beyond a health check |
+| Graph DB | Neo4j via `neo4j-driver` — packages, edges and advisories, written after every OSV scan |
 | File storage | Supabase Storage (ingested manifests) |
 | API docs | `swagger-jsdoc` + `swagger-ui-express`, at `/api-docs` |
-| AI engine | FastAPI service — **scaffolded only**; planned: Gemma 4 via the Gemini API |
-| External data | GitHub REST API. Planned: OSV.dev, npm and PyPI registries |
+| AI engine | FastAPI service, Gemma 4 via the Gemini API (`requests`, no SDK) |
+| External data | GitHub REST API, osv.dev, npm registry, PyPI JSON API |
 
 ### 5.3 Database Schema
 
-`organizations → projects → repositories → dependencies`, plus `users`,
-`dependency_files`, `cves` / `dependency_vulnerabilities`, `security_alerts`,
-and `reports` / `notifications` (provisioned, unused).
+`organizations → projects → repositories → dependency_files / dependencies →
+dependency_edges`, plus the two parallel vulnerability paths — the original
+seeded `cves` / `dependency_vulnerabilities` / `security_alerts` tables, and
+the real `osv_vulnerabilities` / `osv_findings` — and the AI engine's two
+caches, `advisory_surfaces` (Stage 1, by advisory id) and `ai_assessments`
+(Stage 3, by advisory + repository + version + commit sha). Full DDL,
+reconstructed from the controllers and verified against a real Postgres 16
+instance: **[docs/DB_SCHEMA.md](docs/DB_SCHEMA.md)**.
 
-**There is currently no committed schema file.** `api-gateway/utils/init-db.js`
-reads DDL from `docs/DB_SCHEMA.md`, which does not exist, and the rest of the
-DDL is scattered across `controllers/*.js` as self-healing `ALTER TABLE`
-statements. A clean clone cannot provision its database — see §9.
+```bash
+cd api-gateway && node utils/init-db.js   # reads docs/DB_SCHEMA.md, provisions every table
+```
 
 ### 5.4 API Surface
 
@@ -174,27 +195,47 @@ except `/health`.
 | POST · GET | `/orgs` | Create *(admin/manager)* · list organizations |
 | GET | `/users/me` · `/users` | Current profile · members *(admin/manager)* |
 | PUT | `/users/:userId/role` | Change a member's role *(admin/manager)* |
-| POST · GET | `/repos/sync` · `/repos` | Sync from GitHub · list |
+| POST · GET | `/repos/sync` · `/repos` | Sync from GitHub · list, with score |
 | GET · POST | `/github/repos` · `/github/token` | Available repos · OAuth exchange |
 | POST | `/manifests/ingest` | Fetch a manifest from GitHub and store it |
-| POST | `/parser/extract` | Parse a stored manifest into `dependencies` |
-| POST | `/scanner/scan` | Run the CVE-matching scan |
+| POST | `/parser/extract` | Parse direct + transitive dependencies into Postgres |
+| POST | `/scanner/scan` | Run the original seeded-CVE / `ILIKE` scan |
 | GET · PATCH | `/scanner/alerts` · `/scanner/alerts/:id/resolve` | List · resolve |
+| POST | `/osv/scan` | Real osv.dev scan — findings, registry lookups, score |
+| GET | `/osv/findings` | Findings for a repository |
+| GET | `/graph/blast-radius/:vulnId` · `/shared` · `/top-packages` · `/repo/:id` | Neo4j queries, `503` if the graph is unreachable |
+| POST | `/ai/extract-surface` | Stage 1 — advisory → vulnerable surface (cached) |
+| POST | `/ai/assess` | Stage 3 — reachability verdict + remediation (cached by commit) |
+| POST | `/ai/draft-issue` | One model call — ranked finding → draft GitHub issue |
+| GET | `/dashboard/summary` | Totals, severity × reachability, fix-first top 5 |
+| GET · PATCH | `/notifications` · `/notifications/:id/read` | List · mark read |
 
 Interactive documentation at `/api-docs`.
 
 ## 6. Implementation During the Hackathon
 
-_Fill in: what was built during the Hack Day versus brought in beforehand, and
-who built which piece. The codebase currently shows an org/project/repository
-data model, GitHub repo sync, manifest ingestion to Supabase Storage, npm/pip
-dependency extraction with lockfile version resolution, a transactional
-CVE-matching scanner with concurrency-safe row locking, role-based access
-control, and a multi-page React dashboard._
+_Fill in team-specific contribution details before submission — who built
+which piece and on what timeline._ What the codebase shows, end to end: an
+org/project/repository data model with role-based access scoped through
+`getCallerContext`; GitHub repo sync and manifest ingestion to Supabase
+Storage; a full `package-lock.json` tree walk (direct + transitive packages,
+plus parent→child edges) and pinned-`requirements.txt` parsing; the original
+transactional seeded-CVE scanner, kept running; a second, real detection path
+against osv.dev with registry lookups and a documented 0–100 scoring
+formula; a Neo4j graph write on every scan with blast-radius and
+shortest-path queries; a two-stage (three-step) AI reachability engine —
+Gemma 4 extracting the vulnerable surface from advisory prose, a
+deterministic GitHub-tarball regex search for real import/call sites in the
+repository's own code, and Gemma 4 again judging reachability and
+remediation strategy, grounded to fail closed on any citation outside the
+evidence it was given; deterministic fix-first ranking and a dashboard with
+a reachability breakdown; an issue-drafting endpoint; and a notification
+bell. `docs/DB_SCHEMA.md` was written and verified against a real Postgres
+instance so a clean clone can actually provision its database.
 
 ## 7. Open Source and AI Usage
 
-### 7.1 AI models _(planned — no model call is implemented yet)_
+### 7.1 AI models
 
 Both models are open-weight, Apache 2.0, and reached through the Gemini API.
 Full registry, including why there are two: [docs/AI_DESIGN.md](docs/AI_DESIGN.md) §5.
@@ -204,8 +245,8 @@ Full registry, including why there are two: [docs/AI_DESIGN.md](docs/AI_DESIGN.m
 | Model | Gemma 4 26B A4B (instruction-tuned) | Gemma 4 31B (instruction-tuned, dense) |
 | Provider | Google DeepMind | Google DeepMind |
 | Gemini API id | `gemma-4-26b-a4b-it` | `gemma-4-31b-it` |
-| Hugging Face | `google/gemma-4-26B-A4B-it` | `google/gemma-4-31B-it` |
-| Licence | Apache 2.0 | Apache 2.0 |
+| Hugging Face | [`google/gemma-4-26B-A4B-it`](https://huggingface.co/google/gemma-4-26B-A4B-it) | [`google/gemma-4-31B-it`](https://huggingface.co/google/gemma-4-31B-it) |
+| Licence | [Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0) (open weights) | [Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0) (open weights) |
 | Parameters | 25.2B total, 3.8B active (MoE) | 30.7B dense |
 | Context | 256K tokens | 256K tokens |
 | Task | Advisory prose → vulnerable symbols | Code evidence → reachability + remediation |
@@ -215,52 +256,75 @@ Full registry, including why there are two: [docs/AI_DESIGN.md](docs/AI_DESIGN.m
 
 The split is cost-driven: Stage 1 is high-volume and easy (the MoE model
 activates ~3.8B parameters per token), Stage 3 is low-volume and hard (the dense
-31B is the better coder of the two). Both run through one client with the model
-id as a parameter. Stage 2 uses no model.
+31B is the better coder of the two). Both run through the same Gemini API
+client (`ai-service/llm/gemini_client.py`) with the model id as a parameter,
+using the Gemini API's JSON-schema-constrained structured output to enforce
+the contract — retried once on a validation failure, then surfaced as
+"unavailable" rather than shown half-parsed. Stage 2 uses no model: it
+fetches the repository's tarball and regex-searches it for the symbols
+Stage 1 named, and every claim Stage 3 makes is checked in code against
+that evidence before it is ever returned.
+
+**Where this runs:** `ai-service/api/routes/surface.py` (Stage 1),
+`api-gateway/services/evidence.service.js` (Stage 2),
+`ai-service/api/routes/assess.py` (Stage 3),
+`ai-service/api/routes/draft_issue.py` (issue drafting). The input/output
+contracts match `docs/AI_DESIGN.md` §4.1–4.3.
+
+Open weights are not incidental here: they are what allows the same models, the
+same prompts and the same schemas to run locally for private repositories
+(`phases/Phase_10.md` §1) — the one capability a closed model could not provide.
 
 *Figures above are from Google's published model cards and the Gemini API Gemma
-documentation, read 2026-10-08 — verify them before final submission. This
-project has published no benchmark of its own.*
+documentation, read 2026-10-08 — verify them, and re-check the licence terms in
+the weights you actually pull, before final submission. Open-weight does not
+automatically mean every part of a model is open source. This project has
+published no benchmark of its own — no accuracy/precision claim is made for
+the reachability verdict.*
 
 ### 7.2 Libraries
 
 **Backend (`api-gateway`):** Express 5, `@supabase/supabase-js`, `pg`,
-`neo4j-driver`, `jose`, `jsonwebtoken`, `axios`, `cors`, `morgan`, `dotenv`,
-`swagger-jsdoc`, `swagger-ui-express`, `uuid`, `redis`, `pg-copy-streams`,
-`archiver`, `multer` — MIT / Apache-2.0. `redis`, `archiver` and `multer` are
-declared but unimported; see §9.
+`pg-copy-streams`, `neo4j-driver`, `jose`, `jsonwebtoken`, `axios`, `tar`,
+`cors`, `morgan`, `dotenv`, `swagger-jsdoc`, `swagger-ui-express` — MIT /
+Apache-2.0. `tar` extracts the GitHub tarball Stage 2 searches.
 
 **Frontend:** React 19, Vite, Tailwind CSS 4, React Router, Zustand, Recharts,
 `react-force-graph-2d`, Framer Motion, Lenis, `@supabase/supabase-js`, Axios,
 Lucide icons — MIT.
 
-**AI (`ai-service`):** FastAPI, Pydantic, LangChain, LangGraph, Celery, Redis and
-`pgvector` are declared in `requirements.txt`. **No AI call is implemented.**
-The current design needs no vector store, Celery or Redis
-([AI_DESIGN.md](docs/AI_DESIGN.md) §5.2) — those lines should be removed when
-the service is built, not left to imply capability that does not exist.
+**AI (`ai-service`):** FastAPI, Pydantic (+ `pydantic-settings`), `requests`,
+`python-dotenv` — that's the whole list. The original scaffold's LangChain,
+LangGraph, Celery, Redis and `pgvector` lines were removed: the design needs
+no vector store and no task queue ([AI_DESIGN.md](docs/AI_DESIGN.md) §5.2),
+and a plain HTTP client is enough for the Gemini API's structured-output
+mode — no SDK needed.
 
-**External data:** the GitHub REST API. OSV.dev and the npm/PyPI registries are
-planned and not yet called by any code here.
+**External data:** the GitHub REST API (repos, contents, commits, tarballs),
+osv.dev (`/v1/querybatch`, `/v1/vulns/{id}`), the npm registry and the PyPI
+JSON API.
 
 ## 8. Setup and Usage
 
 ### Prerequisites
 - Node.js 18+
+- Python 3.11+
 - A Supabase project (Auth + Postgres + Storage) with GitHub OAuth configured
-- A reachable PostgreSQL database (`api-gateway` connects via `DATABASE_URL`)
-- Neo4j (optional — an unreachable instance degrades the health check, not the app)
-- Python 3.11+ (only once `ai-service` is implemented)
-
-> **Known blocker:** `docs/DB_SCHEMA.md` is missing, so `npm run init-db` cannot
-> provision a fresh database. Until it is written, the schema must be
-> reconstructed from the `CREATE TABLE` / `ALTER TABLE` statements in
-> `api-gateway/controllers/*.js` and `api-gateway/utils/*.sql`.
+- A reachable PostgreSQL database (`api-gateway` connects via `DATABASE_URL`) —
+  use Supabase's **pooler** connection string (`aws-0-<region>.pooler.supabase.com:6543`),
+  not the direct `db.<ref>.supabase.co` host: Supabase's direct host resolves
+  IPv6-only by default, which fails outright on an IPv4-only network or host.
+- Neo4j Aura (optional — an unreachable instance degrades the health check and
+  the graph endpoints to `503`, not the rest of the app)
+- A Gemini API key from [Google AI Studio](https://aistudio.google.com/) for
+  the AI engine (optional — without one, `/ai/*` routes return `503` and
+  everything else still works)
 
 ```bash
 # api-gateway
 cd api-gateway && npm install
 cp .env.example .env     # SUPABASE_*, DATABASE_URL, NEO4J_*, GITHUB_CLIENT_*
+node utils/init-db.js    # provisions every table from docs/DB_SCHEMA.md
 npm run dev              # http://localhost:5000
 
 # frontend
@@ -268,67 +332,99 @@ cd frontend && npm install
 cp .env.example .env     # VITE_API_DEV_URL, VITE_SUPABASE_*
 npm run dev
 
-# ai-service (scaffold only — only /health responds)
+# ai-service
 cd ai-service && pip install -r requirements.txt
-cp .env.example .env
+cp .env.example .env     # GEMINI_API_KEY, GEMMA_MODEL_EXTRACT, GEMMA_MODEL_REASON
 python main.py           # http://localhost:8000
 ```
 
 Every variable each service reads is listed in its own `.env.example`. Only
-`.env.example` files are tracked.
+`.env.example` files are tracked. See **[docs/DB_SCHEMA.md](docs/DB_SCHEMA.md)**
+for the full schema `init-db.js` provisions, and note that re-running it drops
+and recreates every table — fine for first setup, destructive afterward.
 
 ## 9. Future Work and Known Gaps
 
-Listed here rather than above, so nothing unfinished reads as shipped.
+Listed here rather than above, so nothing unfinished reads as shipped. This
+project's honest limits as a reachability analysis tool are in
+[docs/AI_DESIGN.md](docs/AI_DESIGN.md) §8 — in short: it is not taint
+analysis, `not_evidenced` is not a safety guarantee, it is not a replacement
+for a tool with a mature advisory pipeline and open PRs, it is not sound on
+purely transitive findings, and no accuracy number is claimed because none
+has been measured.
 
-**Blocking a clean clone**
-- **`docs/DB_SCHEMA.md` is missing** while `init-db.js` depends on it. Highest-value
-  fix in the project — `phases/Phase_10.md` §5.
+**Scope decisions made along the way, not oversights:**
+- The `dependencies` table stores at most one resolved version per package
+  name per repository (its unique constraint is on
+  `(repository_id, package_name, package_manager)`), so when a lockfile
+  resolves two different versions of the same name, the hoisted top-level
+  version wins. Documented in `phases/Phase_04.md` §6 and
+  `docs/DB_SCHEMA.md`.
+- Stage 2's evidence search is regex over files that already import the
+  package (`phases/Phase_07.md` §4's own recommendation over an AST, for a
+  one-day build) — it fully supports npm; the PyPI pass exists but is a
+  single regex style, less tested.
+- Remediation strategies are `direct-bump` and `override` only; `lift-parent`
+  needs a registry-tree lookup (does a newer *parent* version resolve to a
+  fixed transitive version?) that isn't built, so the model is never asked to
+  assert it without evidence (`AI_DESIGN.md` §4.3).
+- Blast-radius count feeds the fix-first ranking as a constant `1` in the
+  dashboard summary rather than a live Neo4j query per finding — correct in
+  spirit (impact scales with how many repositories share a vulnerable
+  package) but not wired to the graph yet; the dedicated
+  `GET /graph/blast-radius/:vulnId` endpoint does the real multi-repository
+  query and is what the UI should call for that number next.
 
-**Data quality — prerequisite for everything in §4**
-- **Real vulnerability detection.** The current scanner matches a package name
-  against CVE *descriptions* with `ILIKE`, against a small seeded table. Its own
-  comments describe it as a stand-in. OSV.dev integration, the registry lookups
-  for outdated/deprecated packages, and the scoring formula are all unbuilt —
-  `phases/Phase_05.md`.
-- **Transitive dependencies are not recorded.** The parser stores only direct
-  dependencies and consults the lockfile just to pin their versions, so most real
-  findings and every dependency chain are missing — `phases/Phase_04.md` §5.
-- `dependencies.latest_version` is set equal to the installed version; no
-  registry lookup happens.
-
-**Not built**
-- **The AI engine** (§4) — `ai-service` is a FastAPI scaffold whose every route
-  and client file is a one-line `# TODO`; `api-gateway/services/ai.service.js` is
-  a one-line stub. `ai-service/main.py` still carries boilerplate title text from
-  an unrelated template. Specified in `docs/AI_DESIGN.md`, built in
-  `phases/Phase_07.md` and `Phase_08.md`.
-- **Dependency graph and blast radius** — Neo4j is connected but nothing writes
-  to or reads from it — `phases/Phase_06.md`.
-- **Fix-first ranking, contribution intelligence, dashboard, notifications** —
-  `phases/Phase_09.md`.
-- **Local Ollama mode** and **PR dependency-risk analysis** — optional,
-  `phases/Phase_10.md`.
-- **Deployment, demo video and Devpost submission.**
+**Not built — the parts of the original 10-phase plan that didn't make it:**
+- **Local Ollama mode** (`phases/Phase_10.md` §1) — running the same Gemma 4
+  weights locally for private repositories. Real value, explicitly optional,
+  cut for time; the `LLM_PROVIDER`/`OLLAMA_BASE_URL` variables are reserved
+  in `ai-service/.env.example` but nothing reads them yet.
+- **PR dependency-risk analysis** and the **Agent Skill wrapper**
+  (`phases/Phase_10.md` §2, §2.5) — both stretch goals, contingent on the
+  engine working first, not attempted.
+- **Trend charts** (`phases/Phase_09.md` §7) — would need a scan-history
+  table this schema doesn't have; explicitly the first thing to drop per that
+  phase's own "if short on time" guidance.
+- **Deployment, a demo video, and a Devpost submission** — none of these can
+  be completed by an agent without a human's hosting accounts, a recording of
+  the running app, and a Devpost login; they remain for the team to do.
 
 **Considered and deliberately cut** (reasoning in `docs/AI_DESIGN.md` §3): an AI
 repository-onboarding assistant, a standalone CVE explainer, a separate
-"good first issue" finder, an embeddings/vector store, and full taint analysis
-from an HTTP entry point to the vulnerable sink.
-
-**Cleanup**
-- `archiver` and `multer` are declared in `api-gateway/package.json` and never
-  imported; `pgvector`, `langchain-postgres`, Celery and Redis in `ai-service`
-  are not needed by the current design.
+"good first issue" finder, an embeddings/vector store, full taint analysis from
+an HTTP entry point to the vulnerable sink, a multimodal terminal-screenshot
+auditor (the platform already reads the lockfile, which is strictly better data),
+and semantic CVE search (the worked example, "prototype pollution", is a CWE
+field — a `WHERE` clause beats an embedding index).
 
 ## 10. Challenges and Learnings
 
-_Fill in with what was actually hard. Candidates from the build so far:
-reconciling the per-user model in `docs/PRD.md` with the org/project/repository
-hierarchy that was actually built; the tradeoffs of a transactional SQL-join
-scanner versus an external advisory feed; and deciding which parts of the
-product genuinely need a language model and which were arithmetic wearing a
-costume (`docs/AI_DESIGN.md` §2–3)._
+- **Reconciling two schemas.** `docs/PRD.md`/`docs/TRD.md` describe a
+  per-user `client`/`server` project; the actual codebase is an
+  `organizations → projects → repositories` multi-tenant app under
+  `frontend`/`api-gateway`/`ai-service`. Every later phase had to be built
+  against what was actually there, not the original design doc — and
+  `docs/DB_SCHEMA.md` had to be reconstructed from scattered `ALTER TABLE`
+  statements rather than written from a clean design, since the file the
+  rest of the code already assumed existed had never been committed.
+- **One version per package, by design.** Supporting every resolved version
+  of a transitively-duplicated package would have meant reworking the
+  `dependencies` table's primary key and every query against it, late in the
+  build, for a case (two different versions of the same package name in one
+  repository) that is real but secondary to getting transitive edges
+  recorded at all. Documented as a scope decision rather than silently
+  dropped.
+- **Grounding is the whole product.** The single most load-bearing piece of
+  code in this build is not a model call — it's the check in
+  `ai-service/api/routes/assess.py` that rejects a verdict citing a file
+  outside the evidence it was given. Everything else (two LLM calls, a
+  tarball fetch, a graph write) is only trustworthy because that check
+  exists and fails closed.
+- **Deciding what's AI and saying so.** Fix-first ranking, difficulty rating
+  and the repository score are sorts and formulas over stored numbers, not
+  model calls — `docs/AI_DESIGN.md` §2–3 is the record of why those stayed
+  deterministic while the reachability verdict didn't.
 
 ## 11. Credits and License
 
