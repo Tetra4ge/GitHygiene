@@ -74,6 +74,8 @@ GitHygiene connects to your GitHub account, imports your repositories, and runs 
 
 ## Technical Implementation
 
+![Architecture Diagram](frontend/public/Architecture_Diagram.png)
+
 ### Architecture
 
 ```mermaid
