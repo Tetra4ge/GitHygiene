@@ -17,7 +17,6 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.7",
-    "archiver": "^8.0.0",
     "axios": "^1.18.1",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
@@ -25,14 +24,11 @@
     "jose": "^6.2.9",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.11.0",
-    "multer": "^2.2.0",
     "neo4j-driver": "^6.2.0",
     "pg": "^8.23.0",
     "pg-copy-streams": "^7.0.0",
-    "redis": "^6.1.0",
     "swagger-jsdoc": "^6.3.0",
     "swagger-ui-express": "^5.0.1",
-    "tar": "^7.5.22",
-    "uuid": "^14.0.1"
+    "tar": "^7.5.22"
   }
 }
