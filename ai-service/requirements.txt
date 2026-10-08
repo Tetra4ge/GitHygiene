@@ -1,0 +1,31 @@
+# Web Framework & Server
+fastapi
+uvicorn[standard]
+
+# Data Validation & Settings
+pydantic
+pydantic-settings
+python-dotenv
+
+# Database Drivers
+neo4j
+psycopg2-binary>=2.9.9
+
+# AI & LLM Integration (LangGraph + OpenRouter)
+langchain
+langchain-openai
+langchain-google-genai
+langchain-community
+langgraph
+openai
+
+# Vector Store & Embeddings (Supabase pgvector + HuggingFace)
+pgvector
+langchain-postgres
+
+# Asynchronous Tasks
+celery
+redis
+
+# Utility
+requests
