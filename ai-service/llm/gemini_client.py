@@ -66,7 +66,9 @@ def _call_gemini(model: str, system_prompt: str, user_prompt: str, response_sche
     try:
         candidates = data["candidates"]
         parts = candidates[0]["content"]["parts"]
-        text = "".join(p.get("text", "") for p in parts)
+        # Gemma 4's thinking mode emits "thought" parts ahead of the actual
+        # answer — concatenating those in would corrupt the JSON payload.
+        text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
     except (KeyError, IndexError) as exc:
         raise AIUnavailableError(f"Unexpected Gemini API response shape: {data}") from exc
 
@@ -74,7 +76,21 @@ def _call_gemini(model: str, system_prompt: str, user_prompt: str, response_sche
         finish_reason = data.get("candidates", [{}])[0].get("finishReason", "unknown")
         raise AIUnavailableError(f"Gemini API returned no content (finishReason={finish_reason}).")
 
-    return text
+    return _strip_markdown_fence(text)
+
+
+def _strip_markdown_fence(text: str) -> str:
+    """responseMimeType=application/json usually returns bare JSON, but the
+    model occasionally wraps it in a ```json ... ``` fence — or, with Gemma 4's
+    thinking mode, appends a stray trailing ``` with no opening fence at all.
+    Strip either shape before json.loads() instead of letting it fail parsing."""
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.split("\n", 1)[1] if "\n" in stripped else stripped[3:]
+        stripped = stripped.strip()
+    if stripped.endswith("```"):
+        stripped = stripped[:-3].strip()
+    return stripped
 
 
 def generate_structured(
