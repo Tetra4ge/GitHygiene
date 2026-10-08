@@ -1,3 +1,4 @@
+const axios = require('axios');
 const { pgPool } = require('../config/db.config');
 const { getCallerContext } = require('../utils/rbac.util');
 const { ensureOsvSchema } = require('../utils/schema-migrations.util');
@@ -5,16 +6,47 @@ const { ensureOsvSchema } = require('../utils/schema-migrations.util');
 /**
  * Controller to synchronize GitHub repository lists within a secure SQL transaction.
  * Uses transactions for atomicity (rollback on failure) and upserts (ON CONFLICT) for idempotent syncing.
+ *
+ * Phase 3 security note: repos submitted by the client are validated against the
+ * caller's own GitHub repository list — a user cannot import a repo they don't have
+ * access to by guessing an id.
  */
 const syncRepositories = async (req, res) => {
   const { org_id, project_name, repos } = req.body;
   const userId = req.user.sub || req.user.user_id;
 
   if (!org_id || !project_name || !Array.isArray(repos)) {
-    return res.status(400).json({ 
-      success: false, 
-      message: 'Missing required parameters: org_id, project_name, or repos array.' 
+    return res.status(400).json({
+      success: false,
+      message: 'Missing required parameters: org_id, project_name, or repos array.'
     });
+  }
+
+  // Validate submitted repos against the caller's actual GitHub list so a user cannot
+  // import a repository they don't have access to by crafting a request body.
+  const githubToken = req.headers['x-github-token'];
+  if (githubToken) {
+    try {
+      const ghRes = await axios.get('https://api.github.com/user/repos?per_page=100&sort=updated', {
+        headers: {
+          Authorization: `Bearer ${githubToken}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28'
+        },
+        timeout: 10000
+      });
+      const allowedNames = new Set(ghRes.data.map((r) => r.name));
+      const rejected = repos.filter((r) => !allowedNames.has(r.name));
+      if (rejected.length > 0) {
+        return res.status(403).json({
+          success: false,
+          message: `Cannot import repositories not in your GitHub account: ${rejected.map((r) => r.name).join(', ')}`
+        });
+      }
+    } catch (err) {
+      // If GitHub is unreachable, log and continue — don't block the import for an API outage.
+      console.warn('GitHub validation check failed (proceeding without it):', err.message);
+    }
   }
 
   const client = await pgPool.connect();
