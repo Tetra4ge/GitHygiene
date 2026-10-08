@@ -298,8 +298,8 @@ Everything in this repository was built during Hacktoberfest Hack Day — Coimba
 ### Team Contributions
 
 - **G Prajwal Priyadarshan:** API gateway architecture, GitHub integration, scanner pipeline, Neo4j graph writes
-- **Kabilan K:** AI service, Gemma 4 integration, Stage 1/3 prompts, structured output and grounding logic
-- **Rahul L S:** React dashboard, dependency graph visualisation, landing page, UI components
+- **Rahul L S:** AI service, Gemma 4 integration, Stage 1/3 prompts, structured output and grounding logic
+- **Kabilan K:** React dashboard, dependency graph visualisation, landing page, UI components
 - **Kishore B:** Dependency extraction and parsing, Neo4j schema and Cypher queries, deployment
 
 ---
@@ -354,11 +354,11 @@ The demo covers: sign in → import → scan → vulnerability findings with sco
 ### Prerequisites
 
 - Node.js 20+
-- Python 3.11+
+- Python 3.9+
 - A [Supabase](https://supabase.com) project
 - A [Neo4j Aura](https://neo4j.com/cloud/platform/aura-graph-database/) Free instance
 - A [Google AI Studio](https://aistudio.google.com) API key (for Gemma 4 via Gemini API)
-- A GitHub OAuth App (for repository import)
+- A GitHub OAuth App — set as the GitHub provider under Supabase Auth → Providers (for sign-in), and its client id/secret also go in `api-gateway/.env` (for the manifest-fetching code exchange)
 
 ### Installation
 
@@ -383,37 +383,59 @@ cd ..
 
 ### Environment Variables
 
-Copy `.env.example` → `.env` in each service directory.
+Copy `.env.example` → `.env` in each service directory. The blocks below mirror the actual `.env.example` files — only the secrets are placeholders.
 
 **`api-gateway/.env`**
 ```env
-PORT=4000
+PORT=5000
 NODE_ENV=development
+
+# ai-service — see services/ai.service.js
 AI_SERVICE_DEV_URL=http://127.0.0.1:8000
+AI_SERVICE_PRO_URL=https://your-ai-service.onrender.com
 
 SUPABASE_URL=https://xxx.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=eyJhbGci...
+# SUPABASE_JWT_SECRET is only read by the local test-* scripts in utils/ —
+# session JWTs are verified against Supabase's published JWKS, not this secret.
+SUPABASE_JWT_SECRET=your-super-secret-jwt-string
+
+# IMPORTANT: use the IPv4 transaction pooler host (port 6543), not the direct
+# db.<ref>.supabase.co host — that one is IPv6-only and fails on most hosts.
 DATABASE_URL=postgresql://postgres.xxx:PASSWORD@aws-0-us-west-1.pooler.supabase.com:6543/postgres
 
 NEO4J_URI=neo4j+s://xxx.databases.neo4j.io
 NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=your_neo4j_password
 
-GITHUB_CLIENT_ID=your_github_client_id
-GITHUB_CLIENT_SECRET=your_github_client_secret
+GITHUB_CLIENT_ID=your_github_oauth_id
+GITHUB_CLIENT_SECRET=your_github_oauth_secret
 ```
 
 **`ai-service/.env`**
 ```env
 PORT=8000
+
 GEMINI_API_KEY=your_google_ai_studio_key
 GEMMA_MODEL_EXTRACT=gemma-4-26b-a4b-it
 GEMMA_MODEL_REASON=gemma-4-31b-it
+GEMINI_TIMEOUT_SECONDS=60
+
+# Optional — reserved for a future local/offline inference mode, not wired
+# into the engine yet. Leave at the defaults.
+LLM_PROVIDER=gemini
+OLLAMA_BASE_URL=http://localhost:11434
+
+# Fallback only — never the primary path. Leave blank unless you need it.
+OPENROUTER_API_KEY=
 ```
 
 **`frontend/.env`**
 ```env
-VITE_API_DEV_URL=http://localhost:4000
+VITE_API_DEV_URL=http://localhost:5000
+VITE_API_PRO_URL=https://your-api-gateway.onrender.com
+VITE_MODE=development
+
 VITE_SUPABASE_URL=https://xxx.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJhbGci...
 ```
@@ -425,17 +447,20 @@ cd api-gateway
 node utils/init-db.js
 ```
 
-Then run this once in the Supabase SQL Editor:
+This reads the full DDL from [`docs/DB_SCHEMA.md`](docs/DB_SCHEMA.md) — `organizations`, `users`, `projects`, `repositories`, `dependencies`, `osv_vulnerabilities`, `ai_assessments`, `notifications`, and the rest — drops and recreates every table, and tries to install the `handle_new_user` trigger that copies each new Supabase Auth sign-in into `public.users`.
+
+On Supabase Cloud, the script usually can't create that trigger directly (it needs owner privileges on the `auth` schema), and logs a warning instead of failing. If you see that warning, run this once in the Supabase SQL Editor:
 
 ```sql
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 BEGIN
-  INSERT INTO public.profiles (id, github_login, avatar_url)
+  INSERT INTO public.users (user_id, email, full_name, role)
   VALUES (
     new.id,
-    new.raw_user_meta_data->>'user_name',
-    new.raw_user_meta_data->>'avatar_url'
+    new.email,
+    COALESCE(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
+    'developer'
   );
   RETURN new;
 END;
@@ -447,12 +472,14 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 ```
 
+`init-db.js` also backfills `public.users` from any accounts that already exist in `auth.users`, so re-running it is safe after the trigger is in place.
+
 ### Running the Project
 
 **Terminal 1 — API Gateway**
 ```bash
 cd api-gateway && npm run dev
-# → http://localhost:4000
+# → http://localhost:5000
 ```
 
 **Terminal 2 — AI Service**
@@ -468,16 +495,16 @@ cd frontend && npm run dev
 # → http://localhost:5173
 ```
 
-Verify `GET http://localhost:4000/health` returns `{ "postgres": "ok", "neo4j": "ok" }` before using the app.
+Verify `GET http://localhost:5000/api/v1/health` returns `"databases": { "postgres": "ONLINE", "neo4j": "ONLINE" }` before using the app.
 
 ### Usage
 
 1. Sign in with GitHub.
-2. Go to **Repositories** → **Import** and select repos to track.
-3. Click **Scan** on any repository.
-4. Review the **Vulnerabilities** tab — severity, fixed version, blast radius.
+2. Go to **Repositories** and import the ones you want tracked.
+3. Go to **Security**, pick a repository, and click **Run OSV Scan**.
+4. Review the findings — grouped by severity, with the fixed version and a direct/transitive badge for each.
 5. Click **Assess** on any finding to run the AI reachability engine.
-6. Click **Draft Issue** to generate a contributor-ready GitHub issue.
+6. Click **Draft GitHub Issue** on an assessed finding to generate a contributor-ready issue.
 
 ---
 
