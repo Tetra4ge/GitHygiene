@@ -39,6 +39,7 @@ async function ensureOsvSchema() {
   await pgPool.query('ALTER TABLE repositories ADD COLUMN IF NOT EXISTS score_breakdown JSONB');
   await pgPool.query('ALTER TABLE repositories ADD COLUMN IF NOT EXISTS last_scanned_at TIMESTAMP');
   await pgPool.query('ALTER TABLE repositories ADD COLUMN IF NOT EXISTS last_scan_error TEXT');
+  await pgPool.query('ALTER TABLE repositories ADD COLUMN IF NOT EXISTS graph_error TEXT');
 
   ensured = true;
 }

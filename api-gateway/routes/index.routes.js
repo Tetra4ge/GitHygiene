@@ -9,6 +9,7 @@ const manifestRoutes = require('./manifest.routes');
 const parserRoutes = require('./parser.routes');
 const scannerRoutes = require('./scanner.routes');
 const osvRoutes = require('./osv.routes');
+const graphRoutes = require('./graph.routes');
 
 // Mount routes under api-gateway namespace
 router.use('/orgs', orgRoutes);
@@ -19,5 +20,6 @@ router.use('/manifests', manifestRoutes);
 router.use('/parser', parserRoutes);
 router.use('/scanner', scannerRoutes);
 router.use('/osv', osvRoutes);
+router.use('/graph', graphRoutes);
 
 module.exports = router;

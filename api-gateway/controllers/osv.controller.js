@@ -4,6 +4,80 @@ const osv = require('../services/osv.service');
 const { lookupLatestVersions } = require('../services/registry.service');
 const { computeScore } = require('../services/scoring.service');
 const { ensureOsvSchema } = require('../utils/schema-migrations.util');
+const graph = require('../services/graph.service');
+
+/** Re-reads everything this repository needs from Postgres and writes it to Neo4j. */
+async function writeGraphForRepository(repositoryId) {
+  const repoRes = await pgPool.query(
+    `SELECT r.repo_name, p.organization_id, p.project_name
+     FROM repositories r
+     JOIN projects p ON r.project_id = p.project_id
+     WHERE r.repository_id = $1`,
+    [repositoryId]
+  );
+  if (repoRes.rows.length === 0) return;
+  const { repo_name, organization_id, project_name } = repoRes.rows[0];
+
+  const depsRes = await pgPool.query(
+    `SELECT package_name, current_version, ecosystem, package_manager
+     FROM dependencies
+     WHERE repository_id = $1 AND current_version IS NOT NULL AND ecosystem IS NOT NULL`,
+    [repositoryId]
+  );
+  const packages = depsRes.rows.map((d) => ({
+    ecosystem: d.ecosystem,
+    name: d.package_name,
+    version: d.current_version
+  }));
+
+  const edgesRes = await pgPool.query(
+    `SELECT parent_name, child_name FROM dependency_edges WHERE repository_id = $1`,
+    [repositoryId]
+  );
+  // Direct dependencies have no recorded parent edge from the parser when a
+  // bare package.json fallback was used — fall back to "every direct
+  // dependency depends directly on the repo" so the graph still has depth-1
+  // edges even without a lockfile walk.
+  const edges = edgesRes.rows.length
+    ? edgesRes.rows.map((e) => ({ from: e.parent_name, to: e.child_name }))
+    : [];
+  const directDepsRes = await pgPool.query(
+    `SELECT package_name FROM dependencies WHERE repository_id = $1 AND is_direct = true`,
+    [repositoryId]
+  );
+  const edgeFromNames = new Set(edges.map((e) => e.to));
+  for (const row of directDepsRes.rows) {
+    if (!edgeFromNames.has(row.package_name)) {
+      edges.push({ from: '__root__', to: row.package_name });
+    }
+  }
+
+  const findingsRes = await pgPool.query(
+    `SELECT f.osv_id, ov.severity, ov.summary, d.package_name
+     FROM osv_findings f
+     JOIN osv_vulnerabilities ov ON ov.osv_id = f.osv_id
+     JOIN dependencies d ON d.dependency_id = f.dependency_id
+     WHERE f.repository_id = $1 AND f.status = 'open'`,
+    [repositoryId]
+  );
+  const findings = findingsRes.rows.map((r) => ({
+    osvId: r.osv_id,
+    severity: r.severity,
+    summary: r.summary,
+    packageName: r.package_name
+  }));
+
+  await graph.writeScanToGraph({
+    repository: {
+      id: String(repositoryId),
+      fullName: `${project_name}/${repo_name}`,
+      organizationId: String(organization_id)
+    },
+    packages,
+    edges,
+    findings
+  });
+}
 
 /**
  * Phase 5 — real vulnerability scanning against OSV.dev, kept beside the
@@ -189,6 +263,18 @@ const runOsvScan = async (req, res) => {
        WHERE repository_id = $4`,
       [score, riskLevel, breakdown, repository_id]
     );
+
+    // 7. Write to the dependency graph (Phase 6). Never fails the scan —
+    //    graph writes are supporting infrastructure, logged and skipped on error.
+    try {
+      await writeGraphForRepository(repository_id);
+      await pgPool.query('UPDATE repositories SET graph_error = NULL WHERE repository_id = $1', [repository_id]);
+    } catch (graphErr) {
+      console.error('Graph write failed (scan still succeeded):', graphErr.message);
+      await pgPool
+        .query('UPDATE repositories SET graph_error = $1 WHERE repository_id = $2', [graphErr.message, repository_id])
+        .catch(() => {});
+    }
 
     return res.status(200).json({
       success: true,
