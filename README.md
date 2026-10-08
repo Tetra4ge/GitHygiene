@@ -17,7 +17,7 @@ Built for **Hacktoberfest Hack Day — Coimbatore 2026** · INIT CLUB × iDEA CL
 
 ## Team
 
-**Team Name:** TetraFourge
+**Team Name:** HTF-014 TetraFourge
 
 | Member | Contribution |
 | ------ | ------------ |
@@ -306,7 +306,7 @@ Everything in this repository was built during Hacktoberfest Hack Day — Coimba
 
 ## Working Application
 
-**Live Application:** [Live URL]
+**Live Application:** [https://git-hygiene.vercel.app/](https://git-hygiene.vercel.app/)
 
 Sign in with GitHub, import any repository, and run a scan. The scanner works on any public repository — try one with an older lockfile to see vulnerability findings. The AI reachability engine requires `GEMINI_API_KEY` to be configured on the deployed instance.
 
