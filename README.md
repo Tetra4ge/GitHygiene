@@ -22,8 +22,8 @@ Built for **Hacktoberfest Hack Day — Coimbatore 2026** · INIT CLUB × iDEA CL
 | Member | Contribution |
 | ------ | ------------ |
 | G Prajwal Priyadarshan | API Gateway, GitHub integration, scan pipeline |
-| Kabilan K | AI service, Gemma 4 integration, reachability engine |
-| Rahul L S | React dashboard, graph visualisation, UI/UX |
+| Rahul L S | AI service, Gemma 4 integration, reachability engine |
+| Kabilan K | React dashboard, graph visualisation, UI/UX |
 | Kishore B | Neo4j graph model, dependency extraction, DevOps |
 
 ---
@@ -584,13 +584,13 @@ Verify `GET http://localhost:4000/health` returns `{ "postgres": "ok", "neo4j": 
 - [x] Technical implementation documented
 - [x] Work completed during the hackathon documented
 - [x] Team contributions documented
-- [ ] Working application is functional
-- [ ] Live application link added where applicable
-- [ ] Demo video added
+- [x] Working application is functional
+- [x] Live application link added where applicable
+- [x] Demo video added
 - [x] AI and open-source components documented
-- [ ] Setup and usage instructions tested
-- [ ] Challenges and learnings documented
-- [ ] Devpost submission completed
+- [x] Setup and usage instructions tested
+- [x] Challenges and learnings documented
+- [x] Devpost submission completed
 - [x] Devpost link added
 - [x] Credits added
 - [x] License added
