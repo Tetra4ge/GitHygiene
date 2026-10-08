@@ -3,6 +3,7 @@ const { getCallerContext } = require('../utils/rbac.util');
 const osv = require('../services/osv.service');
 const { lookupLatestVersions } = require('../services/registry.service');
 const { computeScore } = require('../services/scoring.service');
+const { ensureOsvSchema } = require('../utils/schema-migrations.util');
 
 /**
  * Phase 5 — real vulnerability scanning against OSV.dev, kept beside the
@@ -14,37 +15,6 @@ const { computeScore } = require('../services/scoring.service');
  * Pipeline: fetch dependencies -> OSV batch -> advisory details (cached)
  * -> registry lookups for direct deps -> score -> persist.
  */
-async function ensureSchema() {
-  await pgPool.query(`
-    CREATE TABLE IF NOT EXISTS osv_vulnerabilities (
-      osv_id VARCHAR(100) PRIMARY KEY,
-      aliases TEXT[],
-      severity VARCHAR(20),
-      summary TEXT,
-      details TEXT,
-      raw JSONB,
-      cached_at TIMESTAMP DEFAULT now()
-    )
-  `);
-  await pgPool.query(`
-    CREATE TABLE IF NOT EXISTS osv_findings (
-      finding_id SERIAL PRIMARY KEY,
-      repository_id INT NOT NULL REFERENCES repositories(repository_id) ON DELETE CASCADE,
-      dependency_id INT NOT NULL REFERENCES dependencies(dependency_id) ON DELETE CASCADE,
-      osv_id VARCHAR(100) NOT NULL REFERENCES osv_vulnerabilities(osv_id) ON DELETE CASCADE,
-      fixed_version VARCHAR(100),
-      status VARCHAR(20) DEFAULT 'open',
-      created_at TIMESTAMP DEFAULT now(),
-      UNIQUE (dependency_id, osv_id)
-    )
-  `);
-  await pgPool.query('ALTER TABLE repositories ADD COLUMN IF NOT EXISTS security_score INT');
-  await pgPool.query("ALTER TABLE repositories ADD COLUMN IF NOT EXISTS risk_level VARCHAR(20)");
-  await pgPool.query('ALTER TABLE repositories ADD COLUMN IF NOT EXISTS score_breakdown JSONB');
-  await pgPool.query('ALTER TABLE repositories ADD COLUMN IF NOT EXISTS last_scanned_at TIMESTAMP');
-  await pgPool.query('ALTER TABLE repositories ADD COLUMN IF NOT EXISTS last_scan_error TEXT');
-}
-
 async function assertRepoAccess(userId, repositoryId) {
   const caller = await getCallerContext(userId);
   const result = caller?.role === 'admin'
@@ -69,7 +39,7 @@ const runOsvScan = async (req, res) => {
   }
 
   try {
-    await ensureSchema();
+    await ensureOsvSchema();
 
     if (!(await assertRepoAccess(userId, repository_id))) {
       return res.status(404).json({

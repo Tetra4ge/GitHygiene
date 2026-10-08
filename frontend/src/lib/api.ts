@@ -7,6 +7,8 @@ import type {
   GitHubRepo,
   Organization,
   OrgMember,
+  OsvFinding,
+  OsvScanResult,
   Repository,
   Role,
   ScanResult,
@@ -186,6 +188,23 @@ export const scannerApi = {
   },
   resolveAlert: async (alertId: string): Promise<SecurityAlert> => {
     const { data } = await api.patch<ApiEnvelope<SecurityAlert>>(`/scanner/alerts/${alertId}/resolve`);
+    return data.data;
+  }
+};
+
+// --- OSV.dev real vulnerability scanner ----------------------------------
+
+export const osvApi = {
+  scan: async (repositoryId: string): Promise<OsvScanResult> => {
+    const { data } = await api.post<ApiEnvelope<OsvScanResult>>('/osv/scan', {
+      repository_id: repositoryId
+    });
+    return data.data;
+  },
+  listFindings: async (repositoryId: string): Promise<OsvFinding[]> => {
+    const { data } = await api.get<ApiEnvelope<OsvFinding[]>>('/osv/findings', {
+      params: { repository_id: repositoryId }
+    });
     return data.data;
   }
 };
