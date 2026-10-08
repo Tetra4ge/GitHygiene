@@ -51,8 +51,10 @@ async function run() {
     // 2. Drop existing tables if they exist to allow clean redeployments (Cascade ensures constraints drop too)
     console.log('🗑️ Dropping existing tables for clean setup...');
     const dropTables = [
-      'notifications', 'reports', 'dependency_vulnerabilities', 'security_alerts',
-      'cves', 'dependencies', 'dependency_files', 'repositories', 'projects',
+      'notifications', 'reports', 'ai_assessments', 'advisory_surfaces',
+      'osv_findings', 'osv_vulnerabilities', 'dependency_vulnerabilities',
+      'security_alerts', 'cves', 'dependency_edges', 'dependencies',
+      'dependency_files', 'repositories', 'projects',
       'team_members', 'teams', 'users', 'organizations'
     ];
     for (const table of dropTables) {
