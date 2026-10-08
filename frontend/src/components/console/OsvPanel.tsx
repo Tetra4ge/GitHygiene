@@ -265,13 +265,6 @@ function AssessmentDetail({
 
 // ── main panel ────────────────────────────────────────────────────────────────
 
-interface OsvPanelData {
-  repos: Repository[];
-  findings: OsvFinding[];
-}
-
-const EMPTY_DATA: OsvPanelData = { repos: [], findings: [] };
-
 export default function OsvPanel() {
   const profile = useAuthStore((s) => s.profile);
   const [repoId, setRepoId] = useState('');
@@ -290,11 +283,7 @@ export default function OsvPanel() {
 
   // repos list
   const fetchRepos = useCallback(() => reposApi.list(), []);
-  const {
-    data: repos,
-    loading: reposLoading,
-    reload: reloadRepos
-  } = useResource(fetchRepos, [] as Repository[]);
+  const { data: repos, loading: reposLoading } = useResource(fetchRepos, [] as Repository[]);
 
   // findings for selected repo
   const fetchFindings = useCallback(async (): Promise<OsvFinding[]> => {
@@ -390,20 +379,28 @@ export default function OsvPanel() {
       actions={
         <div className="flex items-center gap-2 flex-wrap">
           <Select
+            label="Repository"
             value={repoId}
             onChange={handleRepoChange}
             options={repoOptions}
-            disabled={reposLoading}
           />
-          <Button onClick={runScan} loading={scanning} disabled={!repoId || scanning}>
+          <Button onClick={runScan} loading={scanning} disabled={!repoId || scanning || reposLoading}>
             <RefreshCw size={12} />
             {scanning ? 'Scanning…' : 'Run OSV Scan'}
           </Button>
         </div>
       }
     >
-      {notice && <Alert variant="success" className="mb-4">{notice}</Alert>}
-      {error && <Alert variant="error" className="mb-4">{error}</Alert>}
+      {notice && (
+        <div className="mb-4">
+          <Alert kind="success">{notice}</Alert>
+        </div>
+      )}
+      {error && (
+        <div className="mb-4">
+          <Alert kind="error">{error}</Alert>
+        </div>
+      )}
 
       {!repoId && (
         <p className="text-[11px] text-mist">Select a repository, then click "Run OSV Scan" to see findings.</p>
