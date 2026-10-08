@@ -314,15 +314,8 @@ export default function OsvPanel() {
     setExpanded(null);
     const repo = repos.find((r) => String(r.repository_id) === id);
     if (repo) {
-      // repo_name may be "owner/name" or just "name"; use org domain as owner fallback
-      const parts = (repo.repo_name || '').split('/');
-      if (parts.length >= 2) {
-        setOwner(parts[0]);
-        setRepoName(parts[1]);
-      } else {
-        setOwner(profile?.organization_name || '');
-        setRepoName(repo.repo_name || '');
-      }
+      setOwner(repo.organization_name || profile?.organization_name || '');
+      setRepoName(repo.repo_name || '');
     }
   };
 
