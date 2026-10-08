@@ -93,3 +93,9 @@ Package nodes are left in place — other repositories may share them.
 
 ## 6. If Short on Time
 Write only direct dependencies and advisories (skip step 4). Blast radius and shared-dependency queries still work at depth one.
+
+## 7. Implementation Status (Current Codebase)
+
+- **Built:** the Neo4j driver is configured and connected (`api-gateway/config/db.config.js`), and `GET /health` pings it with a trivial `RETURN 1` query. That is the only place Neo4j is touched anywhere in the codebase.
+- **Not built:** nothing writes to the graph. No `Repository`, `Package`, or `Vulnerability` node has ever been created; the graph writer in §4.1 has not been started.
+- **Schema difference:** `Repository.userId` in the model above should become `Repository.organizationId` to match this project's actual org/project/repository hierarchy (see `Phase_05.md` §5's note on the same issue) — scope every write by organization, with the same admin-bypass pattern used in `scanner.controller.js` and `repo.controller.js` (`getCallerContext`).

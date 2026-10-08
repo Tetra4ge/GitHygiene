@@ -86,3 +86,9 @@ If Neo4j is unreachable, respond `503` with a clear message. The client shows "G
 
 ## 4. If Short on Time
 Build blast radius first — it is the feature the demo is built around. Then the insights lists. The visual graph view is the first thing to drop.
+
+## 5. Implementation Status (Current Codebase)
+
+- **Not built.** None of the four read queries (blast radius, shared dependencies, top packages, repository subgraph) or their routes exist yet — there is nothing in the graph to query until `Phase_06.md`'s writer runs (see that phase's §7 implementation status).
+- `react-force-graph-2d` is already a frontend dependency (`frontend/package.json`), so the graph-view UI in §2.3 has its charting library in place whenever the backend queries exist.
+- Scope every query by `organizationId`, not `userId` — see `Phase_06.md` §7 on the schema difference.

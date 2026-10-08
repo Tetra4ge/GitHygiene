@@ -67,3 +67,49 @@ Record the provider and model actually used in the README's "Open Source and AI 
 
 ## 6. If Short on Time
 Ship the advisory explainer only. It is the smallest prompt and the most visible in a demo.
+
+## 7. Implementation Status (Current Codebase)
+
+The planned shape above (`server/src/services/llm.js`, one Express process) is not what the repository actually contains:
+
+- **`ai-service/` is a separate FastAPI microservice**, scaffolded but unimplemented — `main.py` runs and has a `/health` route, and every other file (`core/config.py`, `llm/gemini_client.py`, `llm/prompts.py`, `models/domain.py`, `models/schemas.py`, `db/pg_client.py`, `db/neo4j_client.py`, `services/ast_parser.py`, `api/routes/analysis.py`, `api/routes/strategy.py`) is a single-line `# TODO` comment. Its `requirements.txt` already lists FastAPI, LangChain, LangGraph, `langchain-google-genai`, Celery, Redis, and `pgvector` — a considerably heavier stack than "one wrapper module."
+- **`api-gateway/services/ai.service.js` is also a one-line stub.** Its own comment says it's meant to be "a service wrapper to make Axios calls to the FastAPI AI service" — confirming the intended split is api-gateway (which owns Postgres, RBAC, and org-scoping) assembling grounded context and POSTing it to `ai-service`, which only talks to the LLM and returns text. Under this design, `ai-service` never needs its own database credentials for §3's three features.
+- **Env vars already reflect this split:** `api-gateway/.env.example` has `AI_SERVICE_DEV_URL` / `AI_SERVICE_PRO_URL`; `ai-service/.env.example` has `OPENROUTER_API_KEY` (primary) and `GEMINI_API_KEY` (fallback) — i.e. the intended provider order is "OpenRouter first, Gemini fallback," not a single fixed provider as §2's "Replaceable" principle originally implied.
+- **`main.py`'s title and description are leftover boilerplate** from an unrelated template ("Transformation Intelligence AI Engine ... breaking down monoliths into microservices") and should be corrected to describe GitHygiene when this phase is implemented.
+- **Nothing in §3's three features is built yet.** Implementing them should follow the gateway-assembles-context / service-calls-LLM split above, not the original single-process plan.
+
+## 8. Additional AI & Contributor Features (Proposed, Not Yet Built)
+
+Captured from a later feature brainstorm; none of these exist in the codebase yet. Numbered independently of §3 so they can be picked up piecemeal, on top of whatever §3/§7 produce. All of them are read-only against GitHub — consistent with `AGENTS.md` / `docs/TRD.md` / `CLAUDE.md`'s stated principle that the platform never writes to a user's repository — except where a note below says otherwise.
+
+### 8.1 AI Security Explainer
+This is §3.2's "Advisory explainer," already in scope above — not a new feature, just restated under its brainstorm name.
+
+### 8.2 Attack Path Visualization
+CVE → vulnerable package → dependency chain → application entry point, showing whether a vulnerability is actually reachable/exposed, not just present in the tree. Builds on Phase 7's blast-radius `chain` (already "vulnerable package back up to the repository"); the new part — extending the chain to the application's real entry point and judging reachability — needs source-level analysis. This is almost certainly what `ai-service/services/ast_parser.py`'s stub comment ("Abstract Syntax Tree parsing logic") was scaffolded for. **Tier: stretch** — a materially bigger lift than anything else in this section.
+
+### 8.3 AI Remediation Planner
+This is §3.2's "Upgrade planner," extended to name affected files once the AST parser (8.2) exists to identify them. Until then it stays version-and-package-level, exactly as specified in §3.2.
+
+### 8.4 Contributor Task Generator / 8.5 "Good First Issue" Finder
+Convert a security/dependency finding — or an existing open GitHub issue — into a beginner-friendly task with a difficulty rating (beginner/intermediate/advanced), suggested files, skills, and scope. Very Hacktoberfest-aligned.
+
+**Read-only constraint:** `AGENTS.md` and `docs/TRD.md` both state the platform never writes to a user's repository, and the GitHub OAuth scopes requested at sign-in (`Phase_02.md`) don't include issue creation. These two features must stay **draft-only**: the AI produces the issue title, body, labels, and difficulty rating in-app, and the user copies it into GitHub (or uses GitHub's own "new issue" page) themselves. Do not request `issues:write` scope or call `POST /repos/{owner}/{repo}/issues` without a separate, explicit decision to change that principle.
+
+### 8.6 PR Risk Analyzer
+Analyze a pull request's diff before merging for security/dependency risk and missing tests. Needs one new read call (`GET /repos/{owner}/{repo}/pulls/{number}/files`) and a new prompt template in `llm/prompts.py`; otherwise fits the same gateway-assembles-context → ai-service pattern as §3. Read-only.
+
+### 8.7 AI Repository Onboarding
+Explains a repository's architecture, important files, and where to start contributing, for a new contributor. Its context is the repo's file tree and README (`GET /repos/{owner}/{repo}/contents`), not scan data — a different context-builder than §3.2's three features, reusing the same LLM wrapper.
+
+### 8.8 Local AI Mode
+Replace or augment OpenRouter with a local Ollama + Gemma model so private repositories can be analyzed without sending data to an external API. **This is an architecture fork, not a config change:** Ollama is a local runtime reached over plain HTTP (typically `http://localhost:11434`), not a hosted API behind a bearer key like OpenRouter or Gemini. `ai-service/llm/gemini_client.py` would need a third branch alongside OpenRouter and Gemini, selected by e.g. an `LLM_PROVIDER=ollama` variable that doesn't exist yet in `ai-service/.env.example`. **Tier: stretch.**
+
+### 8.9 Security Decision Assistant
+"Should I upgrade, replace, or temporarily accept this vulnerability?" — a variant of the upgrade planner that compares named options instead of producing one ordered list. Same context-builder as §3.2's upgrade planner; a different prompt template in `llm/prompts.py`.
+
+### 8.10 Contribution Impact Score
+Ranks potential contributions by security impact, difficulty, number of affected components, and estimated effort. Security impact and affected-component count can be computed directly from Phase 6/7's graph data (blast-radius size, severity) without any LLM call; only difficulty/effort estimation genuinely needs one. Implement the ranking as a plain, deterministic scoring function first, and ask the LLM only for the difficulty/effort estimate per item.
+
+## 9. Additional Features: If Short on Time
+Attack Path Visualization (8.2) and Local AI Mode (8.8) are the two biggest lifts — do them last, if at all. PR Risk Analyzer (8.6) and the Security Decision Assistant (8.9) are the cheapest additions once §3 exists, since they reuse its context-builder and LLM wrapper directly. The two issue-generation features (8.4/8.5) are next cheapest, provided they stay draft-only per that section's note.

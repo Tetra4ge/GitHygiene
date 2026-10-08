@@ -75,3 +75,12 @@ On the repository detail page:
 
 ## 4. If Short on Time
 Skip registry lookups and the Outdated tab. Vulnerabilities and the score are the core of the demo.
+
+## 5. Implementation Status (Current Codebase)
+
+What's actually in the repository today, so this phase's "must have" tasks aren't mistaken for done:
+
+- **Built, but different:** `api-gateway/controllers/scanner.controller.js` runs a different kind of scan than §2.1 describes — it matches the repository's `dependencies` rows against a small seeded `cves` table with an `ILIKE` string search (see `api-gateway/utils/seed-cves.js`), inside a transaction that row-locks the repository for concurrency safety. The controller's own comments describe this as a stand-in "to demonstrate the relational-algebra and normalization requirements," not real vulnerability detection.
+- **Not built:** OSV.dev integration (§2.1), npm/PyPI registry lookups for outdated/deprecated packages (§2.2), and the scoring formula (§2.3). `dependencies.latest_version` exists as a column but is currently just set equal to `current_version` on insert (`api-gateway/controllers/parser.controller.js`) — no registry call happens anywhere.
+- **Schema difference:** the real schema is `organizations → projects → repositories → dependencies`, not the flat per-user `repositories` this phase's text assumes. Any OSV/scoring work should scope access the same way `scanner.controller.js` already does — `getCallerContext`, an admin bypass, and an org-scoped JOIN — rather than a bare `userId` check.
+- **Suggested approach:** add OSV as a second, additive detection path (e.g. a new `osv_vulnerabilities` table) feeding the existing `security_alerts` table, rather than replacing the CVE/`ILIKE` scan above — that scan appears to be graded separately from the hackathon submission (per its own comments) and removing it would be a regression for that purpose.
