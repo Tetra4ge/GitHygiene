@@ -1,5 +1,7 @@
 """System prompts for the two engine stages. See docs/AI_DESIGN.md §4."""
 
+from typing import List, Optional
+
 STAGE1_SYSTEM_PROMPT = """You are a security advisory analyst. You are given one OSV
 vulnerability advisory's prose. Extract ONLY the vulnerable surface the advisory
 itself names: function/method/API names, affected sub-paths, dangerous
@@ -20,7 +22,7 @@ Rules you must follow:
 - Respond with structured JSON only, matching the provided schema exactly."""
 
 
-def stage1_user_prompt(osv_id: str, aliases: list[str], summary: str, details: str | None,
+def stage1_user_prompt(osv_id: str, aliases: List[str], summary: str, details: Optional[str],
                         ecosystem: str, package_name: str) -> str:
     alias_str = ", ".join(aliases) if aliases else "none"
     return f"""Advisory: {osv_id}
