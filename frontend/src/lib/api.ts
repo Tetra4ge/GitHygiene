@@ -2,6 +2,7 @@ import axios, { AxiosError } from 'axios';
 import { supabase } from './supabase';
 import type {
   ApiEnvelope,
+  AssessmentResult,
   Dependency,
   DependencyFile,
   GitHubRepo,
@@ -204,6 +205,24 @@ export const osvApi = {
   listFindings: async (repositoryId: string): Promise<OsvFinding[]> => {
     const { data } = await api.get<ApiEnvelope<OsvFinding[]>>('/osv/findings', {
       params: { repository_id: repositoryId }
+    });
+    return data.data;
+  }
+};
+
+// --- AI reachability engine (Phases 7-8) ---------------------------------
+
+export interface AssessInput {
+  finding_id: string;
+  owner: string;
+  repo_name?: string;
+  regenerate?: boolean;
+}
+
+export const aiApi = {
+  assess: async (input: AssessInput): Promise<AssessmentResult> => {
+    const { data } = await api.post<ApiEnvelope<AssessmentResult>>('/ai/assess', input, {
+      headers: githubHeaders()
     });
     return data.data;
   }

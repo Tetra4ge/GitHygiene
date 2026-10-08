@@ -123,6 +123,54 @@ export interface OsvScanResult {
   breakdown: ScoreBreakdown;
 }
 
+export type Reachability = 'reachable' | 'likely_reachable' | 'not_evidenced' | 'unused';
+export type Recommendation = 'upgrade' | 'replace' | 'mitigate' | 'accept';
+
+export interface VerdictEvidenceItem {
+  file: string;
+  line: number;
+  why: string;
+}
+
+export interface AssessmentVerdict {
+  reachability: Reachability;
+  confidence: 'low' | 'medium' | 'high';
+  evidence: VerdictEvidenceItem[];
+  recommendation: Recommendation;
+  target_version: string | null;
+  reasoning: string;
+  breaking_change_risk: 'low' | 'medium' | 'high';
+  breaking_change_note: string;
+  effort: 'minutes' | 'hours' | 'days';
+  insufficient_evidence: boolean;
+  model: string;
+}
+
+export interface AssessmentRemediation {
+  strategy: 'direct-bump' | 'override';
+  direct_dependency: string | null;
+  patch: string | null;
+  note?: string;
+  files_to_change: string[];
+}
+
+export interface AssessmentResult {
+  assessment_id: string;
+  osv_id: string;
+  commit_sha: string;
+  model: string;
+  verdict: AssessmentVerdict;
+  evidence: {
+    package_imported: boolean;
+    import_sites: Array<{ file: string; line: number; text: string }>;
+    call_sites: Array<{ file: string; line: number; symbol: string; snippet: string }>;
+    searched_files: number;
+    truncated: boolean;
+  };
+  remediation: AssessmentRemediation;
+  created_at: string;
+}
+
 export interface OsvFinding {
   finding_id: string;
   osv_id: string;

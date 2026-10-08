@@ -1,8 +1,22 @@
 import { useState } from 'react';
-import { ShieldAlert, ShieldCheck, Radar, ExternalLink } from 'lucide-react';
-import { apiError, osvApi, scannerApi } from '../../lib/api';
-import type { OsvFinding, OsvScanResult, Repository, SecurityAlert } from '../../lib/types';
+import { ShieldAlert, ShieldCheck, Radar, ExternalLink, Sparkles } from 'lucide-react';
+import { aiApi, apiError, osvApi, scannerApi } from '../../lib/api';
+import type { AssessmentResult, OsvFinding, OsvScanResult, Repository, SecurityAlert } from '../../lib/types';
 import { Alert, Button, Field, Panel, Table } from './primitives';
+
+const REACHABILITY_LABEL: Record<string, string> = {
+  reachable: 'Reachable',
+  likely_reachable: 'Likely reachable',
+  not_evidenced: 'No evidenced call path — not proof of safety',
+  unused: 'Imported, not used'
+};
+
+const REACHABILITY_COLOR: Record<string, string> = {
+  reachable: 'text-danger',
+  likely_reachable: 'text-orange-400',
+  not_evidenced: 'text-mist',
+  unused: 'text-emerald'
+};
 
 const SEVERITY_COLOR: Record<string, string> = {
   CRITICAL: 'text-danger',
@@ -34,6 +48,28 @@ export default function SecurityPanel({ selectedRepo }: { selectedRepo: Reposito
   const [osvError, setOsvError] = useState<string | null>(null);
   const [osvResult, setOsvResult] = useState<OsvScanResult | null>(null);
   const [findings, setFindings] = useState<OsvFinding[] | null>(null);
+
+  const [owner, setOwner] = useState('');
+  const [assessingId, setAssessingId] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [activeVerdict, setActiveVerdict] = useState<{ finding: OsvFinding; result: AssessmentResult } | null>(null);
+
+  const handleAssess = async (finding: OsvFinding) => {
+    if (!owner) {
+      setAiError('Enter the GitHub owner (org/user) below the findings table first.');
+      return;
+    }
+    setAssessingId(finding.finding_id);
+    setAiError(null);
+    try {
+      const result = await aiApi.assess({ finding_id: finding.finding_id, owner });
+      setActiveVerdict({ finding, result });
+    } catch (err) {
+      setAiError(apiError(err));
+    } finally {
+      setAssessingId(null);
+    }
+  };
 
   const handleOsvScan = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -148,6 +184,16 @@ export default function SecurityPanel({ selectedRepo }: { selectedRepo: Reposito
           subtitle="READ via GET /api/v1/osv/findings — joined with the cached advisory and the offending dependency"
           icon={findings.length > 0 ? <ShieldAlert size={18} /> : <ShieldCheck size={18} />}
         >
+          <div className="mb-4 flex items-end gap-4">
+            <Field
+              label="GitHub owner (org/user)"
+              value={owner}
+              onChange={setOwner}
+              placeholder="octocat"
+              hint="Needed to fetch the repository's source for the AI reachability check (Phases 7-8)."
+            />
+          </div>
+          {aiError && <Alert kind="error">{aiError}</Alert>}
           <Table
             rows={findings}
             keyOf={(f) => f.finding_id}
@@ -186,9 +232,101 @@ export default function SecurityPanel({ selectedRepo }: { selectedRepo: Reposito
                     <ExternalLink size={11} />
                   </a>
                 )
+              },
+              {
+                header: 'AI',
+                cell: (f) => (
+                  <Button
+                    onClick={() => void handleAssess(f)}
+                    loading={assessingId === f.finding_id}
+                    disabled={!owner}
+                    title="Is this reachable from this repository's own code?"
+                  >
+                    <Sparkles size={13} />
+                    Assess
+                  </Button>
+                )
               }
             ]}
           />
+        </Panel>
+      )}
+
+      {activeVerdict && (
+        <Panel
+          title={`AI verdict — ${activeVerdict.finding.package_name} (${activeVerdict.result.osv_id})`}
+          subtitle={`AI-generated via ${activeVerdict.result.model} — POST /api/v1/ai/assess`}
+          icon={<Sparkles size={18} />}
+          actions={
+            <Button variant="ghost" onClick={() => setActiveVerdict(null)}>
+              Close
+            </Button>
+          }
+        >
+          <div className="flex flex-col gap-4 text-[11px]">
+            <div className="flex items-center gap-3">
+              <span
+                className={`font-bold uppercase ${REACHABILITY_COLOR[activeVerdict.result.verdict.reachability]}`}
+              >
+                {REACHABILITY_LABEL[activeVerdict.result.verdict.reachability]}
+              </span>
+              <span className="text-mist">confidence: {activeVerdict.result.verdict.confidence}</span>
+              {activeVerdict.result.verdict.insufficient_evidence && (
+                <span className="text-yellow-400">insufficient evidence</span>
+              )}
+            </div>
+
+            <p className="text-mist leading-relaxed">{activeVerdict.result.verdict.reasoning}</p>
+
+            {activeVerdict.result.verdict.evidence.length > 0 && (
+              <div className="border border-border/70 p-3 flex flex-col gap-2">
+                <span className="text-paper font-bold">Cited evidence</span>
+                {activeVerdict.result.verdict.evidence.map((e, i) => (
+                  <div key={i} className="flex flex-col gap-1">
+                    <span className="text-azure">
+                      {e.file}:{e.line}
+                    </span>
+                    <span className="text-mist">{e.why}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <span className="text-paper font-bold">Recommendation: </span>
+                <span className="text-emerald uppercase">{activeVerdict.result.verdict.recommendation}</span>
+                {activeVerdict.result.verdict.target_version && (
+                  <span className="text-mist"> → {activeVerdict.result.verdict.target_version}</span>
+                )}
+              </div>
+              <div>
+                <span className="text-paper font-bold">Effort: </span>
+                <span className="text-mist">{activeVerdict.result.verdict.effort}</span>
+                <span className="text-paper font-bold"> · Breaking risk: </span>
+                <span className="text-mist">{activeVerdict.result.verdict.breaking_change_risk}</span>
+              </div>
+            </div>
+
+            {activeVerdict.result.remediation.patch && (
+              <div className="flex flex-col gap-1">
+                <span className="text-paper font-bold">
+                  Remediation ({activeVerdict.result.remediation.strategy})
+                </span>
+                <pre className="bg-ink-soft/50 border border-border/70 p-3 overflow-x-auto whitespace-pre-wrap">
+                  {activeVerdict.result.remediation.patch}
+                </pre>
+                {activeVerdict.result.remediation.note && (
+                  <span className="text-mist">{activeVerdict.result.remediation.note}</span>
+                )}
+              </div>
+            )}
+
+            <p className="text-[10px] text-mist leading-relaxed">
+              AI-generated — static search, not a reachability guarantee. "No evidenced call path" means
+              nothing was found, not that the code is safe.
+            </p>
+          </div>
         </Panel>
       )}
 
