@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # primary path.
     OPENROUTER_API_KEY: str | None = None
 
-    GEMINI_TIMEOUT_SECONDS: int = 30
+    GEMINI_TIMEOUT_SECONDS: int = 60
 
     class Config:
         env_file = ".env"
