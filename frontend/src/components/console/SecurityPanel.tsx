@@ -28,8 +28,8 @@ export default function SecurityPanel({ selectedRepo }: { selectedRepo: Reposito
     try {
       const result = await scannerApi.scan(repoId);
       setNotice(
-        `Scan complete — ${result.totalMatches} vulnerability match${result.totalMatches === 1 ? '' : 'es'} found, ` +
-          `${result.newAlerts.length} new alert${result.newAlerts.length === 1 ? '' : 's'} raised.`
+        `Scan complete — ${result.matchesEvaluated} vulnerability match${result.matchesEvaluated === 1 ? '' : 'es'} found, ` +
+          `${result.newAlertsRaised} new alert${result.newAlertsRaised === 1 ? '' : 's'} raised.`
       );
       await loadAlerts();
     } catch (err) {
