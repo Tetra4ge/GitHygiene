@@ -125,6 +125,19 @@ graph TD
     GC -->|Gemma 4 via Gemini API| Gemma["🤖 Gemma 4\ngemma-4-26b-a4b-it\ngemma-4-31b-it"]
 ```
 
+### Technology Stack
+
+| Category | Technologies |
+| --- | --- |
+| Frontend | React 19, Vite, TypeScript, Tailwind CSS 4, Zustand, Recharts, react-force-graph-2d, Framer Motion |
+| Backend | Node.js, Express 5, JOSE / jsonwebtoken |
+| Database | Supabase Postgres (via `@supabase/supabase-js`), Supabase Storage, Supabase Auth |
+| Graph | Neo4j Aura Free, `neo4j-driver`, Cypher |
+| AI / ML | Gemma 4 (`gemma-4-26b-a4b-it`, `gemma-4-31b-it`) via Gemini API, FastAPI, Pydantic structured output |
+| Infrastructure | Vercel (frontend), Supabase (auth + database + storage), Neo4j Aura |
+| APIs / Services | GitHub REST API, OSV.dev batch API, npm registry, PyPI JSON API |
+
+
 ### How It Works — The Three-Stage AI Pipeline
 
 ```mermaid
@@ -256,17 +269,7 @@ graph LR
 
 Package nodes are **shared across all repositories** — one advisory attached to one package is instantly reachable from every repository that depends on it, at any depth.
 
-### Technology Stack
 
-| Category | Technologies |
-| --- | --- |
-| Frontend | React 19, Vite, TypeScript, Tailwind CSS 4, Zustand, Recharts, react-force-graph-2d, Framer Motion |
-| Backend | Node.js, Express 5, JOSE / jsonwebtoken |
-| Database | Supabase Postgres (via `@supabase/supabase-js`), Supabase Storage, Supabase Auth |
-| Graph | Neo4j Aura Free, `neo4j-driver`, Cypher |
-| AI / ML | Gemma 4 (`gemma-4-26b-a4b-it`, `gemma-4-31b-it`) via Gemini API, FastAPI, Pydantic structured output |
-| Infrastructure | Vercel (frontend), Supabase (auth + database + storage), Neo4j Aura |
-| APIs / Services | GitHub REST API, OSV.dev batch API, npm registry, PyPI JSON API |
 
 ### Technical Decisions
 
