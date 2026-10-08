@@ -75,3 +75,41 @@ Insert dependencies in chunks (for example 500 rows per insert); large lockfiles
 
 ## 4. If Short on Time
 Parse packages only and leave `edges` empty. Vulnerability scanning (Phase 5) works without edges; only the transitive paths in the graph phases need them.
+
+## 5. Why the Lockfile Walk Matters Downstream
+
+This phase is quietly load-bearing for everything after Phase 6, so it is worth
+finishing properly rather than leaving at "direct dependencies only."
+
+- **The graph needs edges.** Without transitive packages and the `edges` array,
+  every blast-radius chain has length one and the cross-repository
+  differentiator in the PRD reduces to "both repos list this package."
+- **Most real findings are transitive.** A scan that sees only direct
+  dependencies misses the majority of advisories in a typical npm project, and
+  the ones it misses are exactly the ones users cannot find by hand.
+- **The AI engine reasons about the path.** `Phase_08.md` Stage 3 is told
+  whether a finding is direct or transitive and which direct dependency pulls it
+  in. That distinction changes the verdict — your code cannot call a package it
+  never imports — so without edges the engine loses one of its strongest signals.
+
+## 6. Implementation Status (Current Codebase)
+
+- **Built:** `POST /manifests/ingest` fetches a manifest from the GitHub
+  Contents API and stores it in Supabase Storage; `POST /parser/extract` parses
+  it into `dependencies` rows inside a transaction, with an upsert on
+  (`repository_id`, `package_name`, `package_manager`).
+- **Not built — the gap that matters:** only **direct** dependencies are
+  recorded. `parser.controller.js` iterates `package.json`'s `dependencies` and
+  `devDependencies` (or the lines of `requirements.txt`) and consults the
+  lockfile **only to pin those packages' exact versions**. The full
+  `package-lock.json` walk in §2.2 — every transitive package, plus the `edges`
+  array — is not implemented, and no `edges` are produced anywhere.
+- **Other differences:** the pip lockfile path looks for `poetry.lock`, not
+  `requirements.txt` pins as §2.2 describes; version cleaning strips range
+  characters with a regex rather than skipping non-plain versions, so a
+  `workspace:*` or git-URL dependency can produce a meaningless version string;
+  `latest_version` is set equal to the installed version on insert (fixed in
+  `Phase_05.md` §3.4).
+- **Suggested order:** finish the lockfile walk before Phase 6. It is a
+  contained change to one controller and it unblocks the graph, the blast
+  radius, and one of the engine's inputs.

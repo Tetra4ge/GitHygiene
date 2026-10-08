@@ -52,3 +52,15 @@ Do not trust repository details sent by the client beyond the `github_id`. Re-re
 
 ## 4. If Short on Time
 Drop search and pagination. The first 100 most recently updated repositories are enough for a demo.
+
+## 5. Implementation Status (Current Codebase)
+
+- **Built:** `POST /repos/sync` and `GET /repos` (org-scoped via
+  `getCallerContext`), `GET /github/repos`, `POST /github/token`, and a
+  repositories panel in the frontend.
+- **Schema difference:** repositories belong to a **project**, which belongs to
+  an **organization** — not directly to a user as §2.2 assumes. Every query is
+  scoped by organization with an admin bypass.
+- Re-read the repository list from GitHub with the caller's token and import
+  only ids that appear in it, so a user cannot import a repository they have no
+  access to. Worth re-checking in `repo.controller.js` before submission.

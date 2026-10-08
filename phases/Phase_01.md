@@ -76,3 +76,25 @@ CREATE CONSTRAINT vuln_id IF NOT EXISTS FOR (v:Vulnerability) REQUIRE v.id IS UN
 
 ## 5. If Short on Time
 Skip Neo4j setup and return `"neo4j": "skipped"` from the health check. Phases 2–5 do not need it.
+
+## 6. Implementation Status (Current Codebase)
+
+Largely done, but the repository layout is **not** the one in §3.1 above. What
+actually exists:
+
+```text
+frontend/      React 19 + Vite + Tailwind (not client/)
+api-gateway/   Express 5, controllers/routes/services (not server/src/)
+ai-service/    FastAPI — scaffolded, every route a # TODO
+```
+
+- **Built:** all three services scaffold and run; Supabase Auth, Postgres via
+  `pg`, and the Neo4j driver are wired; `GET /health` checks Postgres and Neo4j;
+  Swagger is served at `/api-docs`; each service has its own `.env.example`.
+- **Missing and blocking:** `docs/DB_SCHEMA.md` does not exist, yet
+  `api-gateway/utils/init-db.js` reads it to provision the database. Schema DDL
+  is currently scattered across `controllers/*.js` as self-healing
+  `ALTER TABLE ... IF NOT EXISTS` calls. **A clean clone cannot set up its own
+  database.** Writing that file is the highest-value cleanup task in the
+  project — see `Phase_10.md` §5.
+- Treat §3.1's `client/` / `server/` paths as historical. The real layout wins.

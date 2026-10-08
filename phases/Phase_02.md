@@ -71,3 +71,21 @@ export async function requireAuth(req, res, next) {
 
 ## 5. If Short on Time
 Skip the app shell polish. The avatar and a sign-out link are enough.
+
+## 6. Implementation Status (Current Codebase)
+
+- **Built:** GitHub OAuth through Supabase Auth; `middlewares/auth.middleware.js`
+  verifies session JWTs against Supabase's published **JWKS** using `jose` (not
+  the shared HMAC secret — `SUPABASE_JWT_SECRET` in `.env.example` is unused and
+  documented as such); `requireRole` middleware for `admin` / `manager`;
+  `GET /users/me`; protected routes and a landing page in the frontend.
+- **Scope note for Phases 7–8:** Stage 2 downloads the repository tarball to
+  search its code. Public repositories need no extra scope, but **private ones
+  need `repo`**, requested at sign-in. If the demo uses only public
+  repositories, do not request it — ask for the narrowest scope the demo needs
+  and say in the README which scopes are requested and why.
+- **Token lifetime:** `provider_token` (the GitHub token) is present only right
+  after sign-in and is not restored when Supabase refreshes the session. A scan
+  that starts after a refresh will fail to fetch code. Keep it in memory from the
+  sign-in event and prompt to re-authenticate when it is missing — this is a
+  likely and unglamorous demo failure.

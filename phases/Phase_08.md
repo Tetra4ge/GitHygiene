@@ -1,115 +1,123 @@
-# Phase 8: AI Insights
+# Phase 8: AI Engine, Part 2 — Reachability Verdict and Remediation
 
-**Tier:** Should have
+**Tier:** Must have. This is the demo.
+
+Design and rationale: [docs/AI_DESIGN.md](../docs/AI_DESIGN.md) §4.3–4.5.
 
 ## 1. Goal
-The user can ask the platform to explain a vulnerability, plan a repository's upgrades, and summarise its health — in plain language, based on that repository's actual scan results.
+For each finding, a judgement the user can act on: **is the vulnerable code
+actually reachable from this repository, and should you upgrade, replace,
+mitigate, or accept it** — with the reasoning cited to real lines of their code.
 
-## 2. Principles
-- **Grounded.** The model only sees data the scan produced. It is not asked to recall facts about packages or advisories from memory.
-- **Honest.** AI output is labelled as AI-generated, and the prompt tells the model to say when the data is not enough to answer.
-- **Replaceable.** One module talks to the provider. Nothing else in the codebase knows which provider it is.
-- **Not load-bearing.** If the LLM is unavailable, scanning, scoring, and the graph are unaffected.
+This is where the product stops being a scanner with an AI label and starts
+answering the question scanners leave on the user's desk.
 
-## 3. Tasks
+## 2. Stage 3
 
-### 3.1 LLM wrapper
-`server/src/services/llm.js` exports one function:
+**`POST /v1/assess`** on `ai-service`; `api-gateway` exposes
+`POST /api/v1/ai/assess { finding_id }`.
 
-```js
-// returns { text, model }
-export async function complete({ system, prompt, maxTokens }) { ... }
-```
+**Input** — assembled by `api-gateway`, every field already computed:
 
-- Reads `LLM_API_KEY` and `LLM_MODEL` from the environment. The key is never hardcoded and never sent to the client.
-- Sets a request timeout and turns provider errors into a single `LLMUnavailableError`.
-- If `LLM_API_KEY` is not set, the AI routes respond `503 { error: "AI features are not configured" }` and the UI hides the AI buttons.
+| Group | Fields |
+|---|---|
+| Advisory | id, aliases, severity, summary, Stage 1 extraction |
+| Evidence | Stage 2 output, with the real code snippets |
+| Dependency | direct or transitive, installed / fixed / latest version, major-version distance, dev or runtime, dependency path from Phase 6 |
+| Repository | library or application, entry-point files by convention, package manager |
 
-### 3.2 Features
-All three share one system prompt along these lines:
+**Output:** the JSON schema in `AI_DESIGN.md` §4.3 — `reachability`,
+`confidence`, `evidence[]`, `recommendation`, `target_version`, `reasoning`,
+`breaking_change_risk`, `files_to_change`, `tests_to_run`, `side_effects`,
+`effort`, `alternatives_considered[]`, `insufficient_evidence`.
 
-> You are a dependency security assistant. Use only the data provided in the message. If the data is insufficient to answer, say so. Do not invent version numbers, advisory ids, or fixes. Be concise and practical.
+**Model:** `gemma-4-31b-it` via the Gemini API, thinking `high`, function
+calling to enforce the schema. The dense 31B is the stronger coder of the two
+Gemma 4 models available on the API and this is the call where a wrong answer
+costs most; Stage 1's cheaper MoE model handles the volume. See
+`AI_DESIGN.md` §5.1.
 
-| Feature | Route | Context given to the model | Output |
-|---|---|---|---|
-| Advisory explainer | `POST /api/ai/explain` `{ vulnerability_id }` | Advisory id, aliases, summary, severity, package, installed version, fixed version, whether it is direct or transitive, and the dependency chain if the graph has one | What the issue is, how it could affect this project, what to do |
-| Upgrade planner | `POST /api/ai/upgrade-plan` `{ scan_id }` | All vulnerable and outdated direct packages with installed, fixed, and latest versions; for transitive findings, the direct dependency that pulls them in | An ordered list of upgrades, most urgent first, noting major-version jumps that may break things |
-| Health summary | `POST /api/ai/summary` `{ scan_id }` | Score, score breakdown, counts by severity, top findings | A short paragraph plus three priorities |
+**Why this is an LLM task.** There is no formula. A critical advisory in a
+transitive dev-dependency that never runs in production is noise; a medium one
+whose exact vulnerable call sits in a request handler with `req.body` flowing
+into it is this afternoon's work. Weighing severity against where the call
+actually is, what flows into it, how far behind the fix is, and what upgrading
+would break is the per-finding judgement that makes triage take a day — and one
+of its inputs is a code snippet, so no scoring function can express it.
 
-Keep prompts small: cap the number of findings sent (for example the 30 most severe) and say in the prompt when the list was truncated.
+## 3. Honesty constraints
 
-Each route must check that the scan or vulnerability belongs to the caller before building the prompt.
+These are product requirements, not style preferences. They are what separates a
+defensible submission from one that a judge can break in thirty seconds.
 
-### 3.3 Store and reuse
-Save every result to `ai_reports` with `type`, `scan_id`, `content`, and the `model` returned by the wrapper. Before calling the model, look for an existing report of the same type for the same scan (and the same vulnerability, for the explainer) and return it if found. Offer a "Regenerate" action that bypasses this.
+- **`not_evidenced` is never rendered as "safe."** Dynamic `require`, reflection,
+  computed property access, build-time codegen and transitive callers all defeat
+  static search. The UI wording is *"no evidenced call path — not proof of
+  safety."* Deprioritise; never dismiss. If one rule from this phase survives
+  contact with a deadline, make it this one.
+- **Every repository claim cites evidence Stage 2 returned.** A verdict naming a
+  file that is not in the evidence is a bug — assert it in code and drop the
+  verdict rather than display it.
+- **No invented versions or advisory ids.** Fixed and latest versions are
+  supplied as facts; the model restates them, never derives them.
+- **`accept` is a permitted answer** (unreachable, low severity, no fix
+  published) and the prompt must say so. A model that recommends upgrading
+  everything has recommended nothing.
+- **`insufficient_evidence: true`** when Stage 1 found no symbols and Stage 2
+  found no imports. Say so instead of reasoning from severity alone.
+- Every AI panel is labelled AI-generated, with the cited snippet beside it so
+  the user checks the reasoning rather than trusting it.
 
-This keeps cost and latency down during the demo and gives a record of what was generated by which model.
+## 4. Caching
 
-### 3.4 UI
-- "Explain" button on each vulnerability row, opening the explanation in a side panel.
-- "Upgrade plan" and "Summary" actions on the repository detail page.
-- Loading state while the model responds; a clear message on failure.
-- Render the response as Markdown. Use a renderer that does not execute raw HTML.
-- An "AI-generated — verify before acting" label on every AI panel.
+Stage 3 keyed on (advisory, repository, dependency version, **commit sha**). The
+sha matters: the verdict is about code, and new code deserves a new verdict.
+Store with the model id that produced it. "Regenerate" bypasses the cache.
+Reuse the `ai_reports` table shape from [TRD §5.1](../docs/TRD.md).
 
-### 3.5 Documentation
-Record the provider and model actually used in the README's "Open Source and AI Usage" section, with what each AI feature does.
+## 5. UI
 
-## 4. Done When
-- "Explain" on a real finding returns an explanation that names the right package, installed version, and fixed version.
-- The upgrade plan lists the repository's real vulnerable packages and nothing that is not in the scan.
-- Requesting the same report twice calls the model once.
-- With `LLM_API_KEY` unset, the app runs normally and AI actions are hidden.
-- The LLM key appears nowhere in the client bundle or the repository.
+- **Finding detail** — verdict badge (`reachable` / `likely_reachable` /
+  `not_evidenced` / `unused`), recommendation, reasoning.
+- **Evidence panel beside it** — the cited file, line and snippet, with a link to
+  that line on GitHub. *This is the screenshot the submission lives on.* Build it
+  before anything else on this page.
+- **Remediation block** — target version, breaking-change risk and note, files to
+  change, tests to run, alternatives considered.
+- Loading state, failure message, Markdown rendered without raw HTML execution.
 
-## 5. Stretch
-**Chat with a repository** — a chat box on the repository page. Each question is sent with the same scan context as the health summary plus the conversation so far. No vector store is needed at this scale; the scan data fits in the prompt.
+## 6. Done When
+- A repository that really calls a vulnerable function gets `reachable`, with a
+  file and line that you can open and confirm by eye.
+- A repository that depends on the same package but never calls that function
+  gets `not_evidenced` or `unused`, and the UI does not call it safe.
+- A transitive finding is explained as transitive, naming the direct dependency
+  that pulls it in.
+- Recommendations differ across findings in the same repository. If everything
+  comes back `upgrade`, the prompt is not using the evidence — fix that before
+  demoing.
+- Every file named in a verdict appears in that verdict's evidence.
+- Requesting the same assessment twice makes one model call; a new commit makes
+  a new one.
+- With `GEMINI_API_KEY` unset, the app runs normally and AI affordances are
+  hidden.
+- The API key appears nowhere in the client bundle or the repository.
 
-## 6. If Short on Time
-Ship the advisory explainer only. It is the smallest prompt and the most visible in a demo.
+## 7. If Short on Time
+Ship the verdict and the evidence panel; drop `tests_to_run`, `side_effects` and
+`alternatives_considered` from the UI (keep them in the JSON). One finding shown
+convincingly, cited to a real line, beats five findings summarised.
 
-## 7. Implementation Status (Current Codebase)
-
-The planned shape above (`server/src/services/llm.js`, one Express process) is not what the repository actually contains:
-
-- **`ai-service/` is a separate FastAPI microservice**, scaffolded but unimplemented — `main.py` runs and has a `/health` route, and every other file (`core/config.py`, `llm/gemini_client.py`, `llm/prompts.py`, `models/domain.py`, `models/schemas.py`, `db/pg_client.py`, `db/neo4j_client.py`, `services/ast_parser.py`, `api/routes/analysis.py`, `api/routes/strategy.py`) is a single-line `# TODO` comment. Its `requirements.txt` already lists FastAPI, LangChain, LangGraph, `langchain-google-genai`, Celery, Redis, and `pgvector` — a considerably heavier stack than "one wrapper module."
-- **`api-gateway/services/ai.service.js` is also a one-line stub.** Its own comment says it's meant to be "a service wrapper to make Axios calls to the FastAPI AI service" — confirming the intended split is api-gateway (which owns Postgres, RBAC, and org-scoping) assembling grounded context and POSTing it to `ai-service`, which only talks to the LLM and returns text. Under this design, `ai-service` never needs its own database credentials for §3's three features.
-- **Env vars already reflect this split:** `api-gateway/.env.example` has `AI_SERVICE_DEV_URL` / `AI_SERVICE_PRO_URL`; `ai-service/.env.example` has `OPENROUTER_API_KEY` (primary) and `GEMINI_API_KEY` (fallback) — i.e. the intended provider order is "OpenRouter first, Gemini fallback," not a single fixed provider as §2's "Replaceable" principle originally implied.
-- **`main.py`'s title and description are leftover boilerplate** from an unrelated template ("Transformation Intelligence AI Engine ... breaking down monoliths into microservices") and should be corrected to describe GitHygiene when this phase is implemented.
-- **Nothing in §3's three features is built yet.** Implementing them should follow the gateway-assembles-context / service-calls-LLM split above, not the original single-process plan.
-
-## 8. Additional AI & Contributor Features (Proposed, Not Yet Built)
-
-Captured from a later feature brainstorm; none of these exist in the codebase yet. Numbered independently of §3 so they can be picked up piecemeal, on top of whatever §3/§7 produce. All of them are read-only against GitHub — consistent with `AGENTS.md` / `docs/TRD.md` / `CLAUDE.md`'s stated principle that the platform never writes to a user's repository — except where a note below says otherwise.
-
-### 8.1 AI Security Explainer
-This is §3.2's "Advisory explainer," already in scope above — not a new feature, just restated under its brainstorm name.
-
-### 8.2 Attack Path Visualization
-CVE → vulnerable package → dependency chain → application entry point, showing whether a vulnerability is actually reachable/exposed, not just present in the tree. Builds on Phase 7's blast-radius `chain` (already "vulnerable package back up to the repository"); the new part — extending the chain to the application's real entry point and judging reachability — needs source-level analysis. This is almost certainly what `ai-service/services/ast_parser.py`'s stub comment ("Abstract Syntax Tree parsing logic") was scaffolded for. **Tier: stretch** — a materially bigger lift than anything else in this section.
-
-### 8.3 AI Remediation Planner
-This is §3.2's "Upgrade planner," extended to name affected files once the AST parser (8.2) exists to identify them. Until then it stays version-and-package-level, exactly as specified in §3.2.
-
-### 8.4 Contributor Task Generator / 8.5 "Good First Issue" Finder
-Convert a security/dependency finding — or an existing open GitHub issue — into a beginner-friendly task with a difficulty rating (beginner/intermediate/advanced), suggested files, skills, and scope. Very Hacktoberfest-aligned.
-
-**Read-only constraint:** `AGENTS.md` and `docs/TRD.md` both state the platform never writes to a user's repository, and the GitHub OAuth scopes requested at sign-in (`Phase_02.md`) don't include issue creation. These two features must stay **draft-only**: the AI produces the issue title, body, labels, and difficulty rating in-app, and the user copies it into GitHub (or uses GitHub's own "new issue" page) themselves. Do not request `issues:write` scope or call `POST /repos/{owner}/{repo}/issues` without a separate, explicit decision to change that principle.
-
-### 8.6 PR Risk Analyzer
-Analyze a pull request's diff before merging for security/dependency risk and missing tests. Needs one new read call (`GET /repos/{owner}/{repo}/pulls/{number}/files`) and a new prompt template in `llm/prompts.py`; otherwise fits the same gateway-assembles-context → ai-service pattern as §3. Read-only.
-
-### 8.7 AI Repository Onboarding
-Explains a repository's architecture, important files, and where to start contributing, for a new contributor. Its context is the repo's file tree and README (`GET /repos/{owner}/{repo}/contents`), not scan data — a different context-builder than §3.2's three features, reusing the same LLM wrapper.
-
-### 8.8 Local AI Mode
-Replace or augment OpenRouter with a local Ollama + Gemma model so private repositories can be analyzed without sending data to an external API. **This is an architecture fork, not a config change:** Ollama is a local runtime reached over plain HTTP (typically `http://localhost:11434`), not a hosted API behind a bearer key like OpenRouter or Gemini. `ai-service/llm/gemini_client.py` would need a third branch alongside OpenRouter and Gemini, selected by e.g. an `LLM_PROVIDER=ollama` variable that doesn't exist yet in `ai-service/.env.example`. **Tier: stretch.**
-
-### 8.9 Security Decision Assistant
-"Should I upgrade, replace, or temporarily accept this vulnerability?" — a variant of the upgrade planner that compares named options instead of producing one ordered list. Same context-builder as §3.2's upgrade planner; a different prompt template in `llm/prompts.py`.
-
-### 8.10 Contribution Impact Score
-Ranks potential contributions by security impact, difficulty, number of affected components, and estimated effort. Security impact and affected-component count can be computed directly from Phase 6/7's graph data (blast-radius size, severity) without any LLM call; only difficulty/effort estimation genuinely needs one. Implement the ranking as a plain, deterministic scoring function first, and ask the LLM only for the difficulty/effort estimate per item.
-
-## 9. Additional Features: If Short on Time
-Attack Path Visualization (8.2) and Local AI Mode (8.8) are the two biggest lifts — do them last, if at all. PR Risk Analyzer (8.6) and the Security Decision Assistant (8.9) are the cheapest additions once §3 exists, since they reuse its context-builder and LLM wrapper directly. The two issue-generation features (8.4/8.5) are next cheapest, provided they stay draft-only per that section's note.
+## 8. Implementation Status (Current Codebase)
+- **`ai-service/` is a scaffold.** `main.py` runs and serves `/health`; every
+  other file — `core/config.py`, `llm/gemini_client.py`, `llm/prompts.py`,
+  `models/*.py`, `db/*.py`, `services/ast_parser.py`, `api/routes/*.py` — is a
+  one-line `# TODO`.
+- **`api-gateway/services/ai.service.js` is a one-line stub.**
+- **Provider order must change.** `ai-service/.env.example` lists
+  `OPENROUTER_API_KEY` as primary with `GEMINI_API_KEY` as fallback. The Gemma 4
+  challenge requires Gemma **through the Gemini API** (`AI_DESIGN.md` §7), so
+  Gemini becomes the primary path. `GEMMA_MODEL_EXTRACT` and
+  `GEMMA_MODEL_REASON` are the two new variables; both need adding to
+  `.env.example` when implemented.
+- **Nothing in this phase or Phase 7 is built.**

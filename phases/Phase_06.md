@@ -1,18 +1,34 @@
-# Phase 6: Dependency Graph
+# Phase 6: Dependency Graph and Blast Radius
 
 **Tier:** Should have
 
+Phases 6 and 7 of the previous plan (graph writing, then graph querying) are
+merged here, freeing a phase for the AI engine. The graph is supporting
+infrastructure for the engine, not a feature of its own.
+
 ## 1. Goal
-Each completed scan is written into Neo4j as a graph of repositories, packages, and advisories, shared across all of the user's repositories.
+Each completed scan is written to Neo4j, and the platform can answer: which
+repositories does this advisory reach, and through what chain of packages.
 
-## 2. Why a Graph
-The questions that make this product different are multi-hop: "which repositories reach this advisory, and through which packages?" Package nodes are shared between repositories, so one advisory attached to one package node is immediately connected to every repository that depends on it, at any depth.
+## 2. What the graph is for
 
-## 3. Graph Model
+Two consumers, both concrete:
+
+1. **Blast radius** — the cross-repository question no per-repo scanner answers,
+   and the organisation-level differentiator in the PRD.
+2. **The AI engine (Phases 7–8)** — Stage 3 is told whether a finding is direct
+   or transitive and, if transitive, which direct dependency drags it in. That
+   path comes from here, and it materially changes the verdict: your code cannot
+   call a package it never imports.
+
+If the graph is unavailable, the engine still runs — it receives "dependency
+path unknown" and says so. Graph failures must never fail a scan.
+
+## 3. Model
 
 ```text
-(:Repository {id, fullName, userId})
-(:Package {key, ecosystem, name, version})
+(:Repository {id, fullName, organizationId})
+(:Package {key, ecosystem, name, version})      key = "<ecosystem>:<name>@<version>"
 (:Vulnerability {id, severity, summary})
 
 (:Repository)-[:DEPENDS_ON]->(:Package)
@@ -20,82 +36,89 @@ The questions that make this product different are multi-hop: "which repositorie
 (:Package)-[:AFFECTED_BY]->(:Vulnerability)
 ```
 
-`Package.key` is `<ecosystem>:<name>@<version>`, matching the keys the parsers produce in Phase 4.
+`organizationId`, not `userId` — match the real hierarchy. Package nodes are
+shared between repositories; that sharing is the whole mechanism.
 
-`Repository.userId` is what keeps one user's graph separate from another's: every query starts from repositories owned by the caller.
-
-## 4. Tasks
-
-### 4.1 Graph writer
-`server/src/services/graph.js` exports `writeScanToGraph({ repository, packages, edges, vulnerabilities })`. Use `MERGE` throughout so re-scanning never creates duplicates, and `UNWIND` so each step is one round trip instead of one per package.
+Uniqueness constraints on `Repository.id`, `Package.key`, `Vulnerability.id`
+keep writes idempotent:
 
 ```cypher
-// 1. Repository — and drop its old direct edges so removed dependencies disappear
-MERGE (r:Repository {id: $repo.id})
-SET r.fullName = $repo.fullName, r.userId = $repo.userId
-WITH r
-OPTIONAL MATCH (r)-[old:DEPENDS_ON]->()
-DELETE old
+CREATE CONSTRAINT repo_id     IF NOT EXISTS FOR (r:Repository)    REQUIRE r.id IS UNIQUE;
+CREATE CONSTRAINT package_key IF NOT EXISTS FOR (p:Package)       REQUIRE p.key IS UNIQUE;
+CREATE CONSTRAINT vuln_id     IF NOT EXISTS FOR (v:Vulnerability) REQUIRE v.id IS UNIQUE;
 ```
+
+## 4. Writing
+
+`writeScanToGraph({ repository, packages, edges, vulnerabilities })`. `MERGE`
+throughout so re-scanning never duplicates; `UNWIND` so each step is one round
+trip. Drop the repository's old `DEPENDS_ON` edges first so removed dependencies
+disappear. One `session.executeWrite`, chunks of a few thousand, session closed
+in `finally`.
+
+Hook in after scoring. Wrap the whole step in `try/catch`: log the failure,
+record on the scan that the graph was not updated, continue. On
+`DELETE /repos/:id`: `MATCH (r:Repository {id:$id}) DETACH DELETE r` — leave
+package nodes, other repositories share them.
+
+## 5. Reading
+
+Every query scoped by `organizationId`, `session.executeRead`. Neo4j integers
+need `.toNumber()` before JSON.
+
+**Blast radius** — repositories reached by one advisory, with the shortest path:
 
 ```cypher
-// 2. Packages
-UNWIND $packages AS pkg
-MERGE (p:Package {key: pkg.key})
-SET p.ecosystem = pkg.ecosystem, p.name = pkg.name, p.version = pkg.version
+MATCH (r:Repository {organizationId: $orgId})
+MATCH (p:Package)-[:AFFECTED_BY]->(:Vulnerability {id: $vulnId})
+MATCH path = shortestPath((r)-[:DEPENDS_ON*..10]->(p))
+RETURN r.id AS repoId, r.fullName AS repo,
+       p.name AS package, p.version AS version,
+       [n IN nodes(path)[1..] | n.name + '@' + n.version] AS chain,
+       length(path) AS depth
+ORDER BY depth
 ```
 
-```cypher
-// 3. Direct dependencies
-MATCH (r:Repository {id: $repoId})
-UNWIND $directKeys AS key
-MATCH (p:Package {key: key})
-MERGE (r)-[:DEPENDS_ON]->(p)
-```
+`shortestPath` is not optional — every path through a real npm tree is an
+enormous result set. `chain` is what the UI renders as "you get this through
+A → B → C", and what Phase 8 passes to the model.
 
-```cypher
-// 4. Transitive edges
-UNWIND $edges AS e
-MATCH (a:Package {key: e.from}), (b:Package {key: e.to})
-MERGE (a)-[:DEPENDS_ON]->(b)
-```
+**Dependency path for one finding** — the single query the engine calls:
+shortest path from the repository to the vulnerable package, returning the
+direct dependency at the head of the chain.
 
-```cypher
-// 5. Advisories
-UNWIND $vulns AS v
-MATCH (p:Package {key: v.packageKey})
-MERGE (x:Vulnerability {id: v.id})
-SET x.severity = v.severity, x.summary = v.summary
-MERGE (p)-[:AFFECTED_BY]->(x)
-```
+**Shared dependencies** and **most-used packages** — `GROUP BY` over direct
+edges; useful on an insights page, not required by anything else.
 
-Run the steps inside one `session.executeWrite` so a scan is written completely or not at all. Send large lists in chunks of a few thousand. Always close the session in a `finally` block.
+Routes: `GET /graph/blast-radius/:vulnId`, `/graph/shared`,
+`/graph/top-packages`, `/graph/repo/:id`. `503` with a clear message when Neo4j
+is unreachable; the rest of the app keeps working.
 
-### 4.2 Hook into the pipeline
-`fetch → parse → save dependencies → OSV → registries → score → write graph → done`
+## 6. Done When
+- Two repositories sharing a vulnerable package both appear in that advisory's
+  blast radius, each with its own chain.
+- A transitive finding shows a chain longer than one package.
+- Scanning twice does not change node or relationship counts.
+- Two repositories on the same package version point to one `Package` node.
+- Neo4j stopped → scans still complete, dashboard still works, graph views say
+  so.
+- An organisation sees only its own repositories in every result.
 
-The graph step must not be able to fail a scan. Catch its errors, log them, and record on the scan that the graph was not updated, so the UI can say "graph data unavailable for this scan" instead of showing an empty graph as if it were correct.
+## 7. If Short on Time
+Write direct dependencies and advisories only; skip `Package → Package` edges.
+Blast radius still works at depth one, and the engine receives "direct" or
+"transitive, path unknown" — degraded but honest.
 
-### 4.3 Cleanup
-When a repository is deleted (`DELETE /api/repos/:id`), remove its node:
+The force-directed graph view is the first thing to drop. It is the most
+screenshot-friendly and the least useful part of this phase: a hairball of 800
+npm packages tells a judge nothing, while one cited line of their own code tells
+them everything. `react-force-graph-2d` is already in `frontend/package.json` if
+time allows.
 
-```cypher
-MATCH (r:Repository {id: $id}) DETACH DELETE r
-```
-
-Package nodes are left in place — other repositories may share them.
-
-## 5. Done When
-- After a scan, the Neo4j console shows the repository connected to its direct packages, those connected to their transitive packages, and vulnerable packages connected to advisories.
-- Scanning the same repository twice does not change the node or relationship counts.
-- Two repositories using the same package version point to the same `Package` node.
-- Stopping Neo4j and running a scan still produces a completed scan with results in the dashboard.
-
-## 6. If Short on Time
-Write only direct dependencies and advisories (skip step 4). Blast radius and shared-dependency queries still work at depth one.
-
-## 7. Implementation Status (Current Codebase)
-
-- **Built:** the Neo4j driver is configured and connected (`api-gateway/config/db.config.js`), and `GET /health` pings it with a trivial `RETURN 1` query. That is the only place Neo4j is touched anywhere in the codebase.
-- **Not built:** nothing writes to the graph. No `Repository`, `Package`, or `Vulnerability` node has ever been created; the graph writer in §4.1 has not been started.
-- **Schema difference:** `Repository.userId` in the model above should become `Repository.organizationId` to match this project's actual org/project/repository hierarchy (see `Phase_05.md` §5's note on the same issue) — scope every write by organization, with the same admin-bypass pattern used in `scanner.controller.js` and `repo.controller.js` (`getCallerContext`).
+## 8. Implementation Status (Current Codebase)
+- **Built:** the Neo4j driver is configured and `GET /health` pings it with
+  `RETURN 1`. That is the only place Neo4j is touched.
+- **Not built:** everything else. No node has ever been created.
+- **Blocked on Phase 4:** the graph needs transitive edges, and the parser does
+  not produce them yet (see `Phase_05.md` §6). Without that, every chain is
+  length one.

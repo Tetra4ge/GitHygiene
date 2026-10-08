@@ -1,86 +1,126 @@
-# Phase 5: Vulnerability & Package Health Scanning
+# Phase 5: Real Vulnerability Data (OSV)
 
-**Tier:** Must have
+**Tier:** Must have — and a hard prerequisite for Phases 7–9.
 
 ## 1. Goal
-Every scan reports which packages are vulnerable, which are outdated or deprecated, and a security score for the repository. After this phase the product is demoable end to end.
+Every scan reports vulnerabilities that are actually real, from OSV.dev, with
+severity, affected range and fixed version, plus a security score. After this
+phase the product is demoable end to end without any AI at all.
 
-## 2. Tasks
+## 2. Why this phase blocks the AI work
 
-### 2.1 Vulnerabilities from OSV
-`server/src/services/osv.js`
+The scanner in the repository today matches a package name against CVE
+*descriptions* with `ILIKE '%' || package_name || '%'` against a small seeded
+table (`api-gateway/services/scanner.service.js`, `utils/seed-cves.js`). Its own
+comments say it is a stand-in to demonstrate set-based relational work, not
+vulnerability detection. As a detector it is both wrong directions at once: a
+package called `core` or `test` matches CVE text about unrelated software, and a
+genuine advisory that does not happen to spell the package name in its prose
+is missed.
 
-**Step 1 — batch query.** Send every package from the scan (direct and transitive) to OSV in batches of up to 1000:
+Phases 7–9 build an AI engine whose entire job is deciding whether a finding
+matters in your code. Pointed at `ILIKE` matches, it would spend two model calls
+writing a careful, well-cited reachability analysis **of a false positive** — and
+it would do it convincingly. That is worse than no AI, and it is the failure the
+rest of this plan is designed to avoid. Garbage in, eloquent garbage out.
 
-```http
-POST https://api.osv.dev/v1/querybatch
+So: real advisory data first. No exceptions, no "we'll swap the source later."
 
-{
-  "queries": [
-    { "package": { "ecosystem": "npm",  "name": "lodash" }, "version": "4.17.20" },
-    { "package": { "ecosystem": "PyPI", "name": "django" }, "version": "3.2.0" }
-  ]
-}
+## 3. Tasks
+
+### 3.1 Keep the existing scanner, add beside it
+
+`scanner.service.js`'s transactional, row-locked, set-based scan appears to be
+graded separately from the hackathon submission (per its own comments). Do not
+delete it. Add OSV as a second detection path writing to a new table
+(`osv_vulnerabilities`), feeding the same `security_alerts` table, and point the
+UI and everything downstream at the OSV path.
+
+### 3.2 Batch query
+
+`POST https://api.osv.dev/v1/querybatch`, up to 1000 queries per request:
+
+```json
+{ "queries": [
+  { "package": { "ecosystem": "npm",  "name": "lodash" }, "version": "4.17.20" },
+  { "package": { "ecosystem": "PyPI", "name": "django" }, "version": "3.2.0" }
+] }
 ```
 
-The response's `results` array is in the same order as `queries`. Each result has a `vulns` list of `{ id, modified }`, or is empty when the version is clean. Ecosystem names are case-sensitive: `npm` and `PyPI`.
+`results` comes back in request order; each has a `vulns` list of `{ id, modified }`
+or is empty. Ecosystem names are case-sensitive: `npm`, `PyPI`. No API key.
 
-**Step 2 — details.** The batch response contains ids only. Collect the unique ids and fetch each with `GET https://api.osv.dev/v1/vulns/{id}`, a few at a time. From each advisory take:
+### 3.3 Advisory details
+
+The batch returns ids only. Fetch each unique id with
+`GET https://api.osv.dev/v1/vulns/{id}` (a few concurrently) and keep:
 
 | Field | Source |
 |---|---|
-| Summary | `summary` (fall back to the first line of `details`) |
-| Aliases | `aliases` — usually contains the CVE id |
-| Severity | `database_specific.severity` when present (`LOW` / `MODERATE` / `HIGH` / `CRITICAL`); otherwise `UNKNOWN` |
-| Fixed version | The `fixed` event in `affected[].ranges[].events[]` for the matching package |
+| Summary | `summary`, falling back to the first line of `details` |
+| **Full details** | `details` — **store this.** Phase 7 Stage 1 reads it; the one-line summary is not enough to extract a function name from |
+| Aliases | `aliases` (usually holds the CVE id) |
+| Severity | `database_specific.severity` when present, else `UNKNOWN` |
+| Fixed version | the `fixed` event in `affected[].ranges[].events[]` for this package |
+| Ecosystem specifics | `affected[].ecosystem_specific` — rarely populated for npm/PyPI, but when it names affected functions, Phase 7 can skip its LLM call entirely |
 
-Store `MODERATE` as `MEDIUM` so the UI has one vocabulary.
+Store `MODERATE` as `MEDIUM` so the UI has one vocabulary. Cache advisory bodies
+— the same advisory recurs across repositories, and Phase 7 caches on top of this.
 
-Cache advisory details in memory for the life of the process — the same advisory appears across many repositories.
+### 3.4 Outdated and deprecated packages
 
-**Step 3 — save.** Insert one `vulnerabilities` row per (dependency, advisory) pair.
+For **direct dependencies only**, capped at ~5 concurrent lookups:
 
-### 2.2 Outdated and deprecated packages
-`server/src/services/registry.js` — for **direct dependencies only**:
+- npm: `GET https://registry.npmjs.org/{name}` → `dist-tags.latest`;
+  `versions[<installed>].deprecated` is the deprecation message. URL-encode
+  scoped names (`@scope%2Fname`).
+- PyPI: `GET https://pypi.org/pypi/{name}/json` → `info.version`.
 
-- **npm:** `GET https://registry.npmjs.org/{name}` → `dist-tags.latest` is the latest version; `versions[<installed>].deprecated`, when present, is the deprecation message. Scoped names must be URL-encoded (`@scope%2Fname`).
-- **PyPI:** `GET https://pypi.org/pypi/{name}/json` → `info.version` is the latest version.
+A failed lookup leaves `latest_version` empty and does not fail the scan. Today
+`parser.controller.js` sets `latest_version` equal to the installed version on
+insert, which makes every package look current — fix that here.
 
-Run lookups with capped concurrency (around 5 at a time). A failed lookup leaves `latest_version` empty; it does not fail the scan.
+### 3.5 Score
 
-Update each dependency row with `latest_version` and `is_deprecated`. A package is "a major version behind" when the first number of `latest_version` is greater than that of `version`.
+A pure function implementing [TRD §8](../docs/TRD.md): takes findings, returns
+`{ score, riskLevel, breakdown }`. Easiest thing in the project to unit test —
+clean repo, one critical, penalty cap, floor at zero.
 
-### 2.3 Score
-`server/src/services/scoring.js` — a pure function implementing the table in [TRD §8](../docs/TRD.md). It takes the scan's findings and returns `{ score, riskLevel, breakdown }`. Store `security_score` and `risk_level` on the scan; return `breakdown` from `GET /api/scans/:id` so the UI can show how the score was reached.
+Note for Phase 9: this score ranks *repositories*. It deliberately does not rank
+findings within a repository — that is the reachability-weighted ranking, and it
+needs Phase 8.
 
-Being a pure function, this is the easiest part of the project to unit test — add a few cases (clean repo, one critical, penalty cap, floor at zero).
+### 3.6 Pipeline order
 
-### 2.4 Pipeline order
-`fetch → parse → save dependencies → OSV → registries → score → done`
+`fetch manifest → parse → save dependencies → OSV batch → advisory details → registries → score → alerts`
 
-`GET /api/scans/:id/vulnerabilities` returns findings joined with their package name and version, sorted by severity.
+## 4. Done When
+- A repository pinned to a known-vulnerable version (an old `lodash` or
+  `minimist`) reports the advisories that osv.dev lists for that exact version —
+  checked by hand against the website, same ids, same severities.
+- A repository with clean, current dependencies reports **nothing**. Run this
+  check explicitly: the `ILIKE` scanner cannot pass it, and it is the one test
+  that proves the new path is real.
+- Advisory `details` text is stored, not just the summary.
+- Outdated direct dependencies show a real `latest_version`.
+- An OSV outage produces a clearly failed scan, not a crash and not a silent 100.
 
-### 2.5 UI
-On the repository detail page:
-- Score badge coloured by risk level, with the breakdown available on click.
-- **Vulnerabilities tab** — severity, package and version, advisory id (linked to `https://osv.dev/vulnerability/{id}`), summary, fixed version.
-- **Outdated tab** — package, installed version, latest version, deprecated flag.
-- Repository cards on the main page now show the latest score.
+## 5. If Short on Time
+Skip the registry lookups (§3.4) and the Outdated tab. Do **not** skip OSV —
+Phases 7–9 have nothing to reason about without it.
 
-## 3. Done When
-- Scanning a repository with a known-vulnerable pinned version (for example an old `lodash` or `minimist`) lists the expected advisories with severity and a fixed version.
-- Outdated direct dependencies show their latest version.
-- A clean repository scores 100; findings reduce the score according to the table.
-- An OSV or registry outage produces a failed or partial scan with a clear message, not a crashed server.
-
-## 4. If Short on Time
-Skip registry lookups and the Outdated tab. Vulnerabilities and the score are the core of the demo.
-
-## 5. Implementation Status (Current Codebase)
-
-What's actually in the repository today, so this phase's "must have" tasks aren't mistaken for done:
-
-- **Built, but different:** `api-gateway/controllers/scanner.controller.js` runs a different kind of scan than §2.1 describes — it matches the repository's `dependencies` rows against a small seeded `cves` table with an `ILIKE` string search (see `api-gateway/utils/seed-cves.js`), inside a transaction that row-locks the repository for concurrency safety. The controller's own comments describe this as a stand-in "to demonstrate the relational-algebra and normalization requirements," not real vulnerability detection.
-- **Not built:** OSV.dev integration (§2.1), npm/PyPI registry lookups for outdated/deprecated packages (§2.2), and the scoring formula (§2.3). `dependencies.latest_version` exists as a column but is currently just set equal to `current_version` on insert (`api-gateway/controllers/parser.controller.js`) — no registry call happens anywhere.
-- **Schema difference:** the real schema is `organizations → projects → repositories → dependencies`, not the flat per-user `repositories` this phase's text assumes. Any OSV/scoring work should scope access the same way `scanner.controller.js` already does — `getCallerContext`, an admin bypass, and an org-scoped JOIN — rather than a bare `userId` check.
-- **Suggested approach:** add OSV as a second, additive detection path (e.g. a new `osv_vulnerabilities` table) feeding the existing `security_alerts` table, rather than replacing the CVE/`ILIKE` scan above — that scan appears to be graded separately from the hackathon submission (per its own comments) and removing it would be a regression for that purpose.
+## 6. Implementation Status (Current Codebase)
+- **Built:** the `ILIKE` CVE scan described in §3.1, with transaction and row
+  lock; `security_alerts` and `dependency_vulnerabilities` tables; org-scoped
+  access through `getCallerContext`.
+- **Not built:** everything else in this phase — OSV, registries, scoring.
+- **Schema note:** the real hierarchy is `organizations → projects →
+  repositories → dependencies`, not the per-user model the older phase text
+  assumed. Scope new queries the way `scanner.controller.js` already does.
+- **Parser gap that matters downstream:** `parser.controller.js` reads only
+  `package.json`/`requirements.txt` top-level entries, so only *direct*
+  dependencies are stored, and the lockfile is consulted only to pin their
+  versions. Transitive packages — the majority of real findings, and the whole
+  point of the Phase 6 graph — are never recorded. Phase 4 §2.2 describes the
+  full lockfile walk; it is worth finishing before this phase to make the
+  findings representative.
