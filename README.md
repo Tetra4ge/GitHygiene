@@ -21,10 +21,10 @@ Built for **Hacktoberfest Hack Day — Coimbatore 2026** · INIT CLUB × iDEA CL
 
 | Member | Contribution |
 | ------ | ------------ |
-| [Member 1] | API Gateway, GitHub integration, scan pipeline |
-| [Member 2] | AI service, Gemma 4 integration, reachability engine |
-| [Member 3] | React dashboard, graph visualisation, UI/UX |
-| [Member 4] | Neo4j graph model, dependency extraction, DevOps |
+| G Prajwal Priyadarshan | API Gateway, GitHub integration, scan pipeline |
+| Kabilan K | AI service, Gemma 4 integration, reachability engine |
+| Rahul L S | React dashboard, graph visualisation, UI/UX |
+| Kishore B | Neo4j graph model, dependency extraction, DevOps |
 
 ---
 
@@ -297,10 +297,10 @@ Everything in this repository was built during Hacktoberfest Hack Day — Coimba
 
 ### Team Contributions
 
-- **[Member 1]:** API gateway architecture, GitHub integration, scanner pipeline, Neo4j graph writes
-- **[Member 2]:** AI service, Gemma 4 integration, Stage 1/3 prompts, structured output and grounding logic
-- **[Member 3]:** React dashboard, dependency graph visualisation, landing page, UI components
-- **[Member 4]:** Dependency extraction and parsing, Neo4j schema and Cypher queries, deployment
+- **G Prajwal Priyadarshan:** API gateway architecture, GitHub integration, scanner pipeline, Neo4j graph writes
+- **Kabilan K:** AI service, Gemma 4 integration, Stage 1/3 prompts, structured output and grounding logic
+- **Rahul L S:** React dashboard, dependency graph visualisation, landing page, UI components
+- **Kishore B:** Dependency extraction and parsing, Neo4j schema and Cypher queries, deployment
 
 ---
 
@@ -549,7 +549,7 @@ Verify `GET http://localhost:4000/health` returns `{ "postgres": "ok", "neo4j": 
 
 ## Devpost Submission
 
-**Devpost Project:** [Devpost Project URL]
+**Devpost Project:** [https://devpost.com/software/githygiene](https://devpost.com/software/githygiene)
 
 ---
 
