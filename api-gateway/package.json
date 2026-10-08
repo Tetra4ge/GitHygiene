@@ -32,6 +32,7 @@
     "redis": "^6.1.0",
     "swagger-jsdoc": "^6.3.0",
     "swagger-ui-express": "^5.0.1",
+    "tar": "^7.5.22",
     "uuid": "^14.0.1"
   }
 }

@@ -77,4 +77,4 @@ function computeScore(findings, dependencies) {
   return { score, riskLevel: riskLevelFor(score), breakdown };
 }
 
-module.exports = { computeScore, riskLevelFor, PENALTIES };
+module.exports = { computeScore, riskLevelFor, PENALTIES, majorVersion };

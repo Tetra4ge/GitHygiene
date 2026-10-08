@@ -10,6 +10,7 @@ const parserRoutes = require('./parser.routes');
 const scannerRoutes = require('./scanner.routes');
 const osvRoutes = require('./osv.routes');
 const graphRoutes = require('./graph.routes');
+const aiRoutes = require('./ai.routes');
 
 // Mount routes under api-gateway namespace
 router.use('/orgs', orgRoutes);
@@ -21,5 +22,6 @@ router.use('/parser', parserRoutes);
 router.use('/scanner', scannerRoutes);
 router.use('/osv', osvRoutes);
 router.use('/graph', graphRoutes);
+router.use('/ai', aiRoutes);
 
 module.exports = router;
