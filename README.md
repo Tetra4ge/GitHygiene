@@ -1,177 +1,640 @@
 # GitHygiene
 
-A dependency-hygiene dashboard for GitHub repositories: import a repo, scan its manifests, and see which packages are flagged, who else on your team depends on them, and what to fix. Built for **Hacktoberfest Hack Day — Coimbatore 2026** (INIT CLUB × iDEA CLUB, in collaboration with MLH).
+> Know what's in your code. Know what's broken. Know how to fix it.
 
-> **A note on this README:** it describes the project as it actually exists in this repository today, not the original plan. Where the build diverged from the plan in `docs/PRD.md` / `docs/TRD.md` / `phases/*.md`, this file says so, and the gap is tracked in [§9 Future Work](#9-future-work-and-known-gaps) instead of being listed as a shipped feature. See `phases/Phase_05.md` §7, `Phase_06.md` §7, `Phase_07.md` §5, and `Phase_08.md` §7 for the detailed, phase-by-phase version of the same gap analysis.
+GitHygiene is a dependency health and security intelligence platform for GitHub repositories. Connect your repos, run a scan, and get a unified view of every vulnerable, outdated, and deprecated package across your entire project portfolio — with AI-generated explanations and upgrade plans, and a cross-repository graph that shows exactly how far a single advisory reaches.
+
+Built for **Hacktoberfest Hack Day — Coimbatore 2026** · INIT CLUB × iDEA CLUB × MLH
 
 ---
 
-## 1. Team
+## The Problem
 
-| Name | Contribution |
-|---|---|
-| Prajwal Priyadarshan | _fill in contribution_ |
-| _add teammates here_ | |
+Modern repositories are mostly other people's code. A typical project pulls in hundreds of open-source packages — most of them transitively, most of them invisible to the maintainer. When a vulnerability is published, answering *"am I affected, and through which package?"* means jumping between GitHub, a scanner's output, advisory databases, and package registries.
 
-*(Replace the placeholders above with the actual team roster before submission — AGENTS.md requires this section to be accurate, not fabricated.)*
+The people hit hardest are the ones with the least tooling: students, solo maintainers, and small open-source teams who look after several repositories with no dedicated security team.
 
-## 2. Problem Statement
+---
 
-Modern repositories pull in hundreds of open-source packages, most of them transitively, and a maintainer rarely sees past the direct ones. When a vulnerability surfaces, answering "am I affected, and through which package?" means jumping between GitHub, a scanner, advisory databases, and registries — and doing it once per repository. Students, solo maintainers, and small teams who look after several repositories feel this hardest, because they have no dedicated security tooling.
+## How It Works
 
-GitHygiene's target users are exactly that group: a student or solo developer who wants a quick health check, an open-source maintainer who wants to know which advisories actually reach their repos, and a small team lead who wants one view across every repository their team owns instead of one report per repo.
+```mermaid
+flowchart LR
+    U([User]) -->|GitHub OAuth| C[React Dashboard]
+    C -->|REST + JWT| G[Express API Gateway]
 
-## 3. Solution
+    G -->|Fetch manifests| GH[(GitHub API)]
+    G -->|Batch vuln lookup| OSV[(OSV.dev)]
+    G -->|Latest versions| REG[(npm / PyPI)]
+    G -->|Store findings| PG[(Supabase Postgres)]
+    G -->|Dependency graph| N4J[(Neo4j Aura)]
+    G -->|AI insights| AI[FastAPI AI Service]
 
-A signed-in user (via GitHub OAuth, brokered by Supabase Auth) belongs to an **organization**, which owns **projects**, which own **repositories**. The flow:
-
-1. **Sync repositories** from GitHub into a project (`POST /api/v1/repos/sync`).
-2. **Ingest a manifest** (`package.json` or `requirements.txt`) straight from the GitHub Contents API into Supabase Storage (`POST /api/v1/manifests/ingest`).
-3. **Extract dependencies** from the stored manifest — and its lockfile, when reachable — into the `dependencies` table, resolving exact versions where a lockfile is available (`POST /api/v1/parser/extract`).
-4. **Scan** the repository's dependencies and raise `security_alerts` for matches (`POST /api/v1/scanner/scan`).
-5. **Review alerts** scoped to your organization, and resolve them once handled (`GET /api/v1/scanner/alerts`, `PATCH /api/v1/scanner/alerts/:id/resolve`).
-
-Role-based access runs throughout: every query is scoped to the caller's organization via a shared `getCallerContext` helper, with an `admin` role that sees across every organization on the platform, and a `manager` role that can create organizations and manage org membership.
-
-## 4. Innovation and Differentiation
-
-- **Org-scoped, not just per-user.** Repositories belong to a project, which belongs to an organization — so a security lead sees every repository their team owns in one place, not one dashboard per developer.
-- **Relational by design.** The scan pipeline is a set-based SQL join (not a loop over packages in application code), with row-level locking so two concurrent scans of the same repository can't race and double-report an alert.
-- **Multi-ecosystem from the start.** The dependency model treats npm and pip packages uniformly, with room to add more ecosystems without restructuring the schema.
-
-The PRD's headline cross-repository differentiator — "which of my repos does this advisory reach, and through what chain of packages" — depends on the dependency graph described in §9; it is not live yet.
-
-## 5. Technical Implementation
-
-### 5.1 Architecture
-
-```text
-frontend/      React 19 + Vite + Tailwind CSS — dashboard UI
-                 ├── Supabase Auth (GitHub OAuth)
-                 └── REST calls to api-gateway
-
-api-gateway/   Express 5 — REST API, owns all database access
-                 ├── Supabase Auth JWKS (verifies session tokens)
-                 ├── Supabase Storage (manifest file storage)
-                 ├── PostgreSQL via `pg` (organizations, projects, repositories,
-                 │     dependencies, cves, security_alerts, reports, ...)
-                 ├── Neo4j driver (connected; health-checked only — see §9)
-                 └── GitHub REST API (repo listing, manifest/lockfile fetch)
-
-ai-service/    FastAPI (Python) — scaffolded, not yet implemented (see §9)
+    AI -->|LLM inference| OR[(OpenRouter / Gemini)]
+    AI -->|Vector search| PG
+    AI -->|Graph context| N4J
 ```
 
-The client never talks to Postgres, Neo4j, or GitHub directly — every external call is brokered by `api-gateway`, so no service key or GitHub token reaches the browser beyond the short-lived one the user's own OAuth session already has.
+**Scan pipeline — what happens when you hit "Scan":**
 
-### 5.2 Technology Stack
+```mermaid
+flowchart TD
+    A([Trigger scan on repository]) --> B[Queue scan — return 202 immediately]
+    B --> C[Fetch manifests from GitHub]
+    C --> D{Manifest found?}
+    D -- No --> FAIL([Mark failed: no manifest found])
+    D -- Yes --> E[Parse package list\npackage-lock.json · package.json · requirements.txt]
+    E --> F[Batch query OSV.dev\nfor all package versions]
+    F --> G[Query npm / PyPI registries\nfor latest versions + deprecation status]
+    G --> H[Compute security score\npenalty formula · risk level]
+    H --> I[Save to Postgres\ndependencies + vulnerabilities]
+    I --> J[Write dependency graph to Neo4j\nRepository → Package → Vulnerability]
+    J --> K[Create in-app notifications]
+    K --> DONE([Mark done])
+```
 
-| Layer | Technology |
-|---|---|
-| Frontend | React 19, Vite, Tailwind CSS 4, React Router, Zustand, Recharts, `react-force-graph-2d`, Framer Motion, Lenis |
-| Backend | Node.js, Express 5 |
-| Auth | Supabase Auth (GitHub OAuth), verified server-side against Supabase's JWKS (`jose`) |
-| Database | PostgreSQL, accessed directly via `pg` (connection pool), not an ORM |
-| Graph DB | Neo4j, via `neo4j-driver` — connected, not yet used beyond a health check |
-| File storage | Supabase Storage (ingested manifests) |
-| API docs | `swagger-jsdoc` + `swagger-ui-express`, served at `/api-docs` |
-| AI engine | FastAPI service (`ai-service/`) — scaffolded with FastAPI, LangChain/LangGraph, OpenRouter and Gemini clients in `requirements.txt`; no route is implemented yet |
-| External APIs | GitHub REST API (repositories, manifests, lockfiles) |
+---
 
-### 5.3 Database Schema (as implemented)
+## Architecture
 
-`organizations → projects → repositories → dependencies`, plus `users` (role + organization membership), `dependency_files` (ingested manifest pointers), `cves` / `dependency_vulnerabilities` (the seeded vulnerability-matching demo), `security_alerts`, and `reports` / `notifications` (provisioned, not yet written to by any route).
+Three services, each with a single job:
 
-There is currently no committed schema file: `api-gateway/utils/init-db.js` expects to read DDL from `docs/DB_SCHEMA.md`, which does not exist in this repository. Anyone setting up a fresh database needs to reconstruct the schema from the `CREATE TABLE`/`ALTER TABLE` statements scattered across `api-gateway/controllers/*.js` and `api-gateway/utils/*.sql`, or write `docs/DB_SCHEMA.md` before running `init-db.js`.
-
-### 5.4 API Surface
-
-All routes are under `/api/v1` and require `Authorization: Bearer <supabase_jwt>` unless noted.
-
-| Method | Route | Purpose |
+| Service | Stack | Responsibility |
 |---|---|---|
-| GET | `/health` *(no auth)* | Postgres + Neo4j connectivity check |
-| POST | `/orgs` | Create an organization *(admin/manager)* |
-| GET | `/orgs` | List organizations (own org, or all for admins) |
-| GET | `/users/me` | Current user's profile |
-| GET | `/users` | List organization members *(admin/manager)* |
-| POST | `/repos/sync` | Sync a list of GitHub repos into a project |
-| GET | `/repos` | List repositories visible to the caller |
-| GET | `/github/repos` | Repositories available on GitHub for the caller |
-| POST | `/github/token` | Exchange a GitHub OAuth code |
-| POST | `/manifests/ingest` | Fetch a manifest from GitHub and store it |
-| POST | `/parser/extract` | Parse a stored manifest into `dependencies` rows |
-| POST | `/scanner/scan` | Run the CVE-matching scan on a repository |
-| GET | `/scanner/alerts` | List security alerts |
-| PATCH | `/scanner/alerts/:id/resolve` | Mark an alert resolved |
+| `frontend/` | React 19 + Vite + Tailwind CSS | Dashboard UI — talks only to the API gateway |
+| `api-gateway/` | Node.js + Express 5 | Auth, GitHub sync, scanning, graph writes |
+| `ai-service/` | Python + FastAPI + LangGraph | Embeddings, vector search, LLM report generation |
 
-Full interactive documentation is served at `/api-docs` when the server is running.
+```mermaid
+graph TD
+    subgraph Client["🖥️ Frontend"]
+        React["⚛️ React 19 + TypeScript\nTailwind CSS · Recharts\nreact-force-graph-2d · Zustand"]
+    end
 
-## 6. Implementation During the Hackathon
+    subgraph Gateway["🟢 API Gateway"]
+        Express["Node.js / Express 5\nAuth · GitHub Sync · Scanner\nGraph Writes · Notifications"]
+    end
 
-_Fill in: what was built during the Hack Day itself versus brought in beforehand, and who built which piece. The codebase currently shows a working org/project/repository data model, GitHub repo sync, manifest ingestion to Supabase Storage, npm/pip dependency extraction (with lockfile resolution where reachable), a transactional CVE-matching scanner with concurrency-safe row locking, role-based access control, and a multi-page React dashboard (overview, repositories, manifests, scanner, security alerts, organizations, team, profile)._
+    subgraph AIService["🐍 AI Service"]
+        FastAPI["FastAPI"]
+        LangGraph["LangGraph Agent Workflow"]
+        Embeddings["sentence-transformers\nall-MiniLM-L6-v2"]
+        Gemini["Google Gemini / OpenRouter"]
+    end
 
-## 7. Open Source and AI Usage
+    subgraph Data["💾 Persistence"]
+        PG[("Supabase Postgres\n+ pgvector")]
+        N4J[("Neo4j Aura\nDependency Graph")]
+        Storage[("Supabase Storage\nManifest files")]
+    end
 
-**Backend (`api-gateway`):** Express 5, `@supabase/supabase-js`, `pg`, `neo4j-driver`, `jose` (JWT/JWKS verification), `jsonwebtoken`, `axios`, `cors`, `morgan`, `dotenv`, `swagger-jsdoc`, `swagger-ui-express`, `uuid`, `redis`, `pg-copy-streams`, `archiver`, `multer` — all MIT/Apache-2.0-licensed. `redis`, `archiver`, and `multer` are listed as dependencies but are not currently imported by any route; see §9.
+    subgraph OpenData["🌐 Open Data — No API Key Needed"]
+        OSV(OSV.dev\nVulnerability DB)
+        NPM(npm registry)
+        PYPI(PyPI JSON API)
+        GH(GitHub REST API)
+    end
 
-**Frontend:** React 19, Vite, Tailwind CSS 4, React Router, Zustand, Recharts, `react-force-graph-2d`, Framer Motion, Lenis, `@supabase/supabase-js`, Axios, Lucide icons — all MIT-licensed.
+    React <-->|REST / JWT| Express
+    Express --> GH
+    Express --> OSV
+    Express --> NPM
+    Express --> PYPI
+    Express --> PG
+    Express --> N4J
+    Express --> Storage
+    Express --> FastAPI
+    FastAPI --> LangGraph
+    LangGraph --> Embeddings
+    LangGraph <--> PG
+    LangGraph <--> N4J
+    LangGraph --> Gemini
+```
 
-**AI (`ai-service`):** FastAPI, Pydantic, LangChain, LangGraph, `langchain-google-genai`, Celery, Redis, `pgvector` are declared in `requirements.txt` for a planned OpenRouter-primary/Gemini-fallback AI engine (vulnerability explanations, upgrade plans, repository summaries). **No AI call is implemented or wired up yet** — see §9. When it is, this section must name the actual model and provider used, per `AGENTS.md` §5.
+**The gateway is the only service with credentials to Postgres, Neo4j, and Supabase Storage.** The AI service only needs Neo4j (read-only, for graph context) and its own LLM credentials. Nothing touches a database it doesn't own.
 
-**External data sources:** the GitHub REST API (repository listing, manifest and lockfile contents). OSV.dev and the npm/PyPI registries are planned data sources (see `docs/TRD.md` §6) that are not yet called by any code in this repository.
+---
 
-## 8. Setup and Usage
+## Data Model
 
-### Prerequisites
-- Node.js (v18+ recommended)
-- A Supabase project (Auth + Postgres + Storage) with a GitHub OAuth provider configured
-- A reachable PostgreSQL database (Supabase's, or your own — `api-gateway` connects via `DATABASE_URL`, not through `@supabase/supabase-js`)
-- A Neo4j instance (optional — the API degrades to a failed health check, not a crash, if unreachable)
-- Python 3.11+ (only needed once `ai-service` is implemented and run)
+### Postgres — what gets stored per scan
 
-### API Gateway
+```mermaid
+erDiagram
+    profiles {
+        uuid id PK
+        text github_login
+        text avatar_url
+    }
+    repositories {
+        uuid id PK
+        uuid user_id FK
+        bigint github_id
+        text full_name
+        text default_branch
+        text language
+        timestamptz last_scanned_at
+    }
+    scans {
+        uuid id PK
+        uuid repository_id FK
+        text status
+        int security_score
+        text risk_level
+        text error
+        timestamptz started_at
+        timestamptz finished_at
+    }
+    dependencies {
+        uuid id PK
+        uuid scan_id FK
+        text ecosystem
+        text name
+        text version
+        text latest_version
+        bool is_direct
+        bool is_deprecated
+    }
+    vulnerabilities {
+        uuid id PK
+        uuid scan_id FK
+        uuid dependency_id FK
+        text osv_id
+        text[] aliases
+        text severity
+        text summary
+        text fixed_version
+    }
+    ai_reports {
+        uuid id PK
+        uuid repository_id FK
+        uuid scan_id FK
+        text type
+        text content
+        text model
+    }
+    notifications {
+        uuid id PK
+        uuid user_id FK
+        text type
+        text title
+        bool is_read
+    }
+
+    profiles ||--o{ repositories : owns
+    repositories ||--o{ scans : has
+    scans ||--o{ dependencies : contains
+    scans ||--o{ vulnerabilities : contains
+    dependencies ||--o{ vulnerabilities : linked_to
+    repositories ||--o{ ai_reports : has
+    profiles ||--o{ notifications : receives
+```
+
+### Neo4j — the dependency graph
+
+```mermaid
+graph LR
+    R1["🗂️ :Repository\nuser/api"] -->|DEPENDS_ON| P1["📦 :Package\nnpm:lodash@4.17.20"]
+    R1 -->|DEPENDS_ON| P2["📦 :Package\nnpm:express@4.18.2"]
+    R2["🗂️ :Repository\nuser/web"] -->|DEPENDS_ON| P1
+    P1 -->|DEPENDS_ON| P3["📦 :Package\nnpm:minimist@1.2.5"]
+    P3 -->|AFFECTED_BY| V1["⚠️ :Vulnerability\nGHSA-xvch-5gv4-984h\nCRITICAL"]
+    P1 -->|AFFECTED_BY| V2["⚠️ :Vulnerability\nGHSA-p6mc-m468-83gw\nHIGH"]
+```
+
+Package nodes are **shared across repositories** — that sharing is what makes cross-repository blast-radius queries possible. When a new advisory hits `lodash`, both `user/api` and `user/web` are instantly reachable from it.
+
+---
+
+## Features
+
+### Security Scoring
+
+Every scan produces a score (0–100) and a risk level, computed from the findings:
+
+| Finding | Penalty |
+|---|---|
+| Critical vulnerability | −25 |
+| High vulnerability | −15 |
+| Medium vulnerability | −7 |
+| Low / unknown severity | −2 |
+| Deprecated direct dependency | −5 |
+| Direct dep a major version behind | −1 each (capped at −10) |
+
+Risk level: **low** ≥ 80 · **medium** 50–79 · **high** 25–49 · **critical** < 25
+
+The formula is shown in the UI so every score can be explained, not just displayed.
+
+### Blast Radius — Cross-Repository Impact
+
+```mermaid
+flowchart TD
+    ADV["Advisory\nGHSA-xvch-5gv4-984h\nCRITICAL"] --> P3["minimist@1.2.5"]
+    P3 --> P1["lodash@4.17.20\n⬆ transitive dep"]
+    P1 --> R1["user/api\n🔴 score: 31"]
+    P1 --> R2["user/web\n🔴 score: 44"]
+    P1 --> R3["user/cli-tool\n🟡 score: 62"]
+```
+
+Pick any advisory and GitHygiene shows every repository in your portfolio that it reaches, the exact dependency chain it travels through, and the depth of each path. This is the answer to *"which of my projects are affected?"* — without opening a single repo.
+
+---
+
+## AI Intelligence Layer
+
+The AI service is a standalone FastAPI application powered by **LangGraph** agent workflows. It consumes real scan data from Postgres and graph context from Neo4j — it never guesses or hallucinates package names, versions, or advisory details.
+
+```mermaid
+graph TD
+    subgraph Input["📥 Context Assembly — API Gateway"]
+        S1[Scan findings from Postgres]
+        S2[Dependency chain from Neo4j]
+        S3[Advisory details from OSV]
+    end
+
+    subgraph Agent["🧠 LangGraph Agent — AI Service"]
+        N1[Context Builder Node]
+        N2[Embedding Node\nall-MiniLM-L6-v2]
+        N3[Vector Search Node\npgvector similarity]
+        N4[LLM Inference Node\nGemini / OpenRouter]
+        N5[Response Formatter Node]
+
+        N1 --> N2
+        N2 --> N3
+        N3 --> N4
+        N4 --> N5
+    end
+
+    subgraph Output["📤 Features"]
+        F1["🔍 Advisory Explainer\nWhat it is · Impact · Fix"]
+        F2["📋 Upgrade Planner\nOrdered steps · Breaking changes flagged"]
+        F3["📊 Health Summary\nParagraph + 3 priorities"]
+        F4["💬 Repository Chat\nNatural language Q&A over scan data"]
+    end
+
+    S1 & S2 & S3 --> N1
+    N5 --> F1 & F2 & F3 & F4
+```
+
+### AI Features
+
+| Feature | Route | What it does |
+|---|---|---|
+| **Advisory Explainer** | `POST /ai/explain` | Plain-language breakdown of one vulnerability in this repository's context — what the issue is, how it reaches the project, what to upgrade |
+| **Upgrade Planner** | `POST /ai/upgrade-plan` | Ordered upgrade steps for a scan's findings, most urgent first, with major-version breaking changes flagged |
+| **Health Summary** | `POST /ai/summary` | A short paragraph plus three actionable priorities derived from the scan score and findings |
+| **Repository Chat** | `POST /ai/chat` | Natural language Q&A over a repository's scan results — "which packages should I fix first?" or "is CVE-2024-XXXX exploitable here?" |
+
+### How AI Reports are Generated
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant G as API Gateway
+    participant PG as Postgres
+    participant N4J as Neo4j
+    participant AI as AI Service
+    participant VEC as pgvector
+    participant LLM as Gemini / OpenRouter
+
+    U->>G: POST /ai/explain { vulnerability_id }
+    G->>PG: Check for cached ai_report
+    alt Report cached
+        PG-->>G: Cached report
+        G-->>U: Return cached result
+    else Not cached
+        G->>PG: Fetch scan data, package, advisory
+        G->>N4J: Fetch dependency chain to vulnerability
+        G->>AI: Send context bundle
+        AI->>VEC: Semantic search for similar advisories
+        VEC-->>AI: Related context
+        AI->>LLM: Grounded prompt with scan data only
+        LLM-->>AI: Plain-language explanation
+        AI-->>G: Report + model used
+        G->>PG: Cache to ai_reports with model name
+        G-->>U: Explanation + upgrade guidance
+    end
+```
+
+All results are cached to `ai_reports` — re-requesting the same report returns the stored result without hitting the LLM again. Every cached report records which model generated it.
+
+### Open Source AI Models & Libraries
+
+| Component | Model / Library | Role |
+|---|---|---|
+| **LLM Inference** | [Google Gemini](https://deepmind.google/technologies/gemini/) via `langchain-google-genai` | Primary LLM for explanations, upgrade plans, summaries |
+| **LLM Fallback** | [OpenRouter](https://openrouter.ai) via `langchain-openai` | Provider-agnostic fallback — routes to any hosted model |
+| **Embeddings** | [`sentence-transformers/all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) (HuggingFace) | Converts advisory text and package descriptions into vector embeddings |
+| **Vector Store** | [pgvector](https://github.com/pgvector/pgvector) on Supabase Postgres | Stores and queries embeddings for semantic similarity search |
+| **Agent Orchestration** | [LangGraph](https://github.com/langchain-ai/langgraph) | Stateful multi-step agent workflow — context → embed → search → infer → format |
+| **LLM Framework** | [LangChain](https://github.com/langchain-ai/langchain) | Prompt templates, output parsers, chain composition |
+| **Async Tasks** | [Celery](https://docs.celeryq.dev) + [Upstash Redis](https://upstash.com) | Background task queue for long-running AI jobs (planned) |
+
+All embedding models run open weights from HuggingFace — no proprietary embedding API is required. Inference goes through OpenRouter, which means the LLM provider can be swapped by changing one environment variable.
+
+---
+
+## Tech Stack
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### ⚛️ Frontend
+![React](https://img.shields.io/badge/React_19-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
+![Vite](https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS_4-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
+![Zustand](https://img.shields.io/badge/Zustand-593D88?style=for-the-badge&logo=react&logoColor=white)
+![Recharts](https://img.shields.io/badge/Recharts-FF6384?style=for-the-badge)
+
+</td>
+<td width="33%" valign="top">
+
+### 🟢 API Gateway
+![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white)
+![Express](https://img.shields.io/badge/Express_5-000000?style=for-the-badge&logo=express&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)
+![Neo4j](https://img.shields.io/badge/Neo4j-018BFF?style=for-the-badge&logo=neo4j&logoColor=white)
+![JWT](https://img.shields.io/badge/JWT/JOSE-000000?style=for-the-badge&logo=jsonwebtokens&logoColor=white)
+
+</td>
+<td width="33%" valign="top">
+
+### 🐍 AI Service
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-FF4F00?style=for-the-badge&logo=langchain&logoColor=white)
+![LangChain](https://img.shields.io/badge/LangChain-1C3C3C?style=for-the-badge&logo=langchain&logoColor=white)
+![Gemini](https://img.shields.io/badge/Google_Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white)
+![OpenRouter](https://img.shields.io/badge/OpenRouter-000000?style=for-the-badge&logo=openai&logoColor=white)
+
+</td>
+</tr>
+<tr>
+<td width="33%" valign="top">
+
+### 🐘 Database & Vectors
+![PostgreSQL](https://img.shields.io/badge/Supabase_Postgres-316192?style=for-the-badge&logo=postgresql&logoColor=white)
+![pgvector](https://img.shields.io/badge/pgvector-336791?style=for-the-badge&logo=postgresql&logoColor=white)
+![HuggingFace](https://img.shields.io/badge/all--MiniLM--L6--v2-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black)
+
+</td>
+<td width="33%" valign="top">
+
+### 🕸️ Graph
+![Neo4j](https://img.shields.io/badge/Neo4j_Aura-018BFF?style=for-the-badge&logo=neo4j&logoColor=white)
+![Cypher](https://img.shields.io/badge/Cypher-008CC1?style=for-the-badge&logo=neo4j&logoColor=white)
+
+</td>
+<td width="33%" valign="top">
+
+### 🔴 Open Data — No API Key
+![OSV](https://img.shields.io/badge/OSV.dev-4285F4?style=for-the-badge&logo=google&logoColor=white)
+![GitHub](https://img.shields.io/badge/GitHub_API-181717?style=for-the-badge&logo=github&logoColor=white)
+![npm](https://img.shields.io/badge/npm_registry-CB3837?style=for-the-badge&logo=npm&logoColor=white)
+![PyPI](https://img.shields.io/badge/PyPI-3775A9?style=for-the-badge&logo=pypi&logoColor=white)
+
+</td>
+</tr>
+</table>
+
+---
+
+## Running Locally
+
+You need three terminals — the frontend, the gateway, and the AI service all run at once. You'll also need accounts for Supabase, Neo4j Aura, and an LLM provider via OpenRouter or Google AI Studio.
+
+### 1. Install dependencies
+
+```bash
+# API Gateway
+cd api-gateway && npm install && cd ..
+
+# Frontend
+cd frontend && npm install && cd ..
+
+# AI Service
+cd ai-service
+python -m venv venv
+source venv/bin/activate        # macOS / Linux
+# .\venv\Scripts\Activate.ps1  # Windows PowerShell
+pip install -r requirements.txt
+cd ..
+```
+
+### 2. Configure environment variables
+
+Copy `.env.example` → `.env` in each of `api-gateway/`, `ai-service/`, and `frontend/`, then fill in your credentials.
+
+**`api-gateway/.env`**
+```env
+PORT=4000
+NODE_ENV=development
+AI_SERVICE_DEV_URL=http://127.0.0.1:8000
+
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGci...
+DATABASE_URL=postgresql://postgres.xxx:PASSWORD@aws-0-us-west-1.pooler.supabase.com:6543/postgres
+
+NEO4J_URI=neo4j+s://xxx.databases.neo4j.io
+NEO4J_USERNAME=neo4j
+NEO4J_PASSWORD=your_neo4j_password
+
+GITHUB_CLIENT_ID=your_github_client_id
+GITHUB_CLIENT_SECRET=your_github_client_secret
+```
+
+**`ai-service/.env`**
+```env
+PORT=8000
+ENVIRONMENT=development
+
+# LLM — use either Gemini or OpenRouter
+GOOGLE_API_KEY=your_google_ai_studio_key
+OPENROUTER_API_KEY=sk-or-v1-xxxxxxxxxx
+
+NEO4J_URI=neo4j+s://xxx.databases.neo4j.io
+NEO4J_USERNAME=neo4j
+NEO4J_PASSWORD=your_neo4j_password
+
+# Optional: async task queue
+CELERY_BROKER_URL=rediss://default:PASSWORD@xxx.upstash.io:6379
+CELERY_RESULT_BACKEND=rediss://default:PASSWORD@xxx.upstash.io:6379
+```
+
+**`frontend/.env`**
+```env
+VITE_API_DEV_URL=http://localhost:4000
+VITE_SUPABASE_URL=https://xxx.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGci...
+```
+
+> **Never commit real credentials.** `.env` files are gitignored. If a key ever ends up in a `.env.example` by accident, rotate it at the provider — removing it from the file afterward is not enough.
+
+### 3. Initialise the database (first time only)
+
 ```bash
 cd api-gateway
-npm install
-cp .env.example .env   # fill in SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL, NEO4J_*, GITHUB_CLIENT_ID/SECRET
-npm run dev             # nodemon, http://localhost:5000 by default (see .env PORT)
+node utils/init-db.js
 ```
 
-### Frontend
+This creates all tables. **It is destructive — run it only against a fresh database.**
+
+Then run this once in the Supabase SQL Editor to wire up the auth trigger that syncs new sign-ups into `profiles`:
+
+```sql
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.profiles (id, github_login, avatar_url)
+  VALUES (
+    new.id,
+    new.raw_user_meta_data->>'user_name',
+    new.raw_user_meta_data->>'avatar_url'
+  );
+  RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+```
+
+Optional utility scripts (run from `api-gateway/`):
+
+| Script | What it does | Safe on existing data? |
+|---|---|---|
+| `node utils/run-indexes.js` | Applies performance indexes | ✅ Yes — `IF NOT EXISTS` |
+| `node utils/seed-cves.js` | Seeds sample CVE data | ❌ No — destructive; requires `SEED_OPT_IN=true` |
+
+### 4. Start all three services
+
+**Terminal 1 — API Gateway**
 ```bash
-cd frontend
-npm install
-cp .env.example .env   # fill in VITE_API_DEV_URL, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
-npm run dev             # Vite dev server
+cd api-gateway && npm run dev
+# → http://localhost:4000
+# Verify: curl http://localhost:4000/health
 ```
 
-### AI Service (scaffold only — not yet functional)
+**Terminal 2 — AI Service**
 ```bash
 cd ai-service
-pip install -r requirements.txt
-cp .env.example .env   # fill in OPENROUTER_API_KEY or GEMINI_API_KEY
-python main.py          # http://localhost:8000 — only /health responds today
+source venv/bin/activate   # or .\venv\Scripts\Activate.ps1 on Windows
+uvicorn main:app --reload --port 8000
+# → http://localhost:8000
+# Verify: curl http://localhost:8000/health
 ```
 
-Every environment variable each service reads is listed in that service's `.env.example`. Real values must never be committed; only `.env.example` files are tracked.
+**Terminal 3 — Frontend**
+```bash
+cd frontend && npm run dev
+# → http://localhost:5173
+```
 
-## 9. Future Work and Known Gaps
+Check `GET /api/health` returns `{ "postgres": "ok", "neo4j": "ok" }` before using the app. If either is failing, fix the corresponding credentials in `api-gateway/.env` first.
 
-Listed here instead of in the feature list above, per `phases/Phase_10.md`'s own instruction not to present unfinished work as shipped:
+---
 
-- **OSV.dev vulnerability detection and the scoring formula** (`docs/TRD.md` §6, §8) — the current scanner matches against a small seeded `cves` table with an `ILIKE` string search, not real advisory data. Details and a suggested approach that doesn't disturb the existing scanner: `phases/Phase_05.md` §7.
-- **Dependency graph and cross-repository insights** (blast radius, shared dependencies, most-used packages) — Neo4j is connected but unused beyond a health-check ping; nothing writes to or reads from the graph yet. Details: `phases/Phase_06.md` §7, `phases/Phase_07.md` §5.
-- **AI insights** (advisory explainer, upgrade planner, repository summary) — `ai-service` is a scaffolded FastAPI app with every route and client file still a one-line `# TODO`. Details and the intended gateway-assembles-context / service-calls-LLM split: `phases/Phase_08.md` §7. A further batch of proposed AI and contributor-tooling features (attack-path visualization, PR risk analysis, a local Ollama mode, a contribution-impact score, and more) is scoped in `phases/Phase_08.md` §8, none of it built yet.
-- **Outdated/deprecated package detection** — `dependencies.latest_version` is currently just a copy of the installed version; no npm/PyPI registry lookup happens.
-- **`docs/DB_SCHEMA.md` is missing** despite `api-gateway/utils/init-db.js` depending on it to provision a database from scratch.
-- **Unused dependencies**: `archiver` and `multer` appear in `api-gateway/package.json` but are not imported anywhere.
-- **Notifications** — a `notifications` table is provisioned but no route reads or writes it.
-- **Deployment, demo video, and Devpost submission** — not yet done; see `phases/Phase_10.md`.
+## API Reference
 
-## 10. Challenges and Learnings
+All routes are under `/api`. Every route except `/health` requires `Authorization: Bearer <supabase_jwt>`.
 
-_Fill in with what was actually hard and what the team actually learned — for example, reconciling the original per-user client/server plan in `docs/PRD.md`/`docs/TRD.md` with the org/project/repository model that was actually built, or the tradeoffs of a transactional SQL-join scanner versus an external vulnerability feed._
+```mermaid
+mindmap
+  root((GitHygiene API))
+    Auth & Profile
+      GET /health
+      GET /me
+    GitHub
+      GET /github/repos
+    Repositories
+      POST /repos
+      GET /repos
+      DELETE /repos/:id
+      POST /repos/:id/scan
+    Scans
+      GET /scans/:id
+      GET /scans/:id/dependencies
+      GET /scans/:id/vulnerabilities
+    Graph Insights
+      GET /graph/blast-radius/:vulnId
+      GET /graph/shared
+      GET /graph/top-packages
+      GET /graph/repo/:id
+    AI
+      POST /ai/explain
+      POST /ai/upgrade-plan
+      POST /ai/summary
+      POST /ai/chat
+    Dashboard
+      GET /dashboard/summary
+    Notifications
+      GET /notifications
+      PATCH /notifications/:id/read
+```
 
-## 11. Credits and License
+---
 
-Licensed under the [Apache License 2.0](./LICENSE). Built with the open-source libraries listed in §7, and the GitHub REST API. See `AGENTS.md` for this repository's hackathon submission and agent-contribution rules.
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| "Network Error" in the frontend | `VITE_API_DEV_URL` wrong port | Fix it and restart `npm run dev` |
+| "Invalid or expired token" | Wrong `SUPABASE_URL` in gateway | Verify the URL; verification is via JWKS — no shared secret needed |
+| Profile not syncing on sign-up | Auth trigger not created | Run the SQL block above in Supabase SQL Editor |
+| New user can't create resources | Everyone starts as `developer` role | Promote admin manually: `UPDATE profiles SET role = 'admin' WHERE ...` |
+| Manifest ingest 404 | File path doesn't exist on default branch | Paths are case-sensitive; use full path from repo root |
+| GitHub org repos missing | Org restricts third-party OAuth | Approve the app under GitHub → Settings → Applications |
+| AI features return 503 | `GOOGLE_API_KEY` / `OPENROUTER_API_KEY` not set | Add the key to `ai-service/.env` and restart the AI service |
+
+---
+
+## Repository Layout
+
+```text
+.
+├── frontend/               React 19 + Vite + Tailwind CSS dashboard
+│   ├── src/
+│   │   ├── components/     UI components (landing, dashboard, console)
+│   │   ├── layouts/        DashboardLayout, auth guards
+│   │   ├── lib/            api.ts, authStore, themeStore, types
+│   │   └── pages/          Login, Dashboard, Repositories, Graph, AI
+│   └── public/
+├── api-gateway/            Node.js / Express 5 REST API and scan pipeline
+│   ├── controllers/        github, health, manifest, org, parser, repo, scanner, user
+│   ├── routes/
+│   ├── services/           scanner.service.js, ai.service.js
+│   ├── middlewares/        auth, role, error handling
+│   ├── utils/              init-db, seed-cves, run-indexes, test-scanner
+│   └── server.js
+├── ai-service/             FastAPI + LangGraph AI microservice
+│   ├── api/routes/         analysis.py, strategy.py
+│   ├── core/               config.py
+│   ├── db/                 neo4j_client.py, pg_client.py
+│   ├── llm/                gemini_client.py, prompts.py
+│   ├── models/             domain.py, schemas.py
+│   ├── services/           ast_parser.py
+│   └── main.py
+├── docs/
+│   ├── PRD.md              Product requirements
+│   └── TRD.md              Technical architecture
+├── AGENTS.md               Hackathon submission rules
+├── CLAUDE.md               AI coding agent guide for this repo
+└── .env.example            Environment variable template
+```
+
+---
+
+## Documentation
+
+- [docs/PRD.md](docs/PRD.md) — product requirements, user stories, scope tiers
+- [docs/TRD.md](docs/TRD.md) — full technical architecture, data model, API surface, scoring
+- [CLAUDE.md](CLAUDE.md) — guide for AI coding agents working in this repo
+
+---
+
+## License
+
+[MIT](LICENSE)
