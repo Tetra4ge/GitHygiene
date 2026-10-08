@@ -1,9 +1,10 @@
-
 <div align="center">
 
-<img width="986" height="972" alt="GitHygiene" src="https://github.com/user-attachments/assets/dbed6bb9-f984-45c3-bc34-fb782f04b94f" />
+<img width="200" alt="GitHygiene" src="https://github.com/user-attachments/assets/dbed6bb9-f984-45c3-bc34-fb782f04b94f" />
 
 # GitHygiene
+
+</div>
 
 </div>
 > Know what's in your code. Know what's broken. Know how to fix it.
