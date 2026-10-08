@@ -1,0 +1,4 @@
+# Test-only dependencies — not needed to run the service, only to test it.
+-r requirements.txt
+pytest
+httpx
