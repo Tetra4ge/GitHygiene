@@ -5,7 +5,7 @@ schemas double as the Gemini API structured-output schema the model is
 constrained to — see llm/gemini_client.py.
 """
 
-from typing import Literal
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -17,7 +17,7 @@ class ExtractSurfaceRequest(BaseModel):
     osv_id: str
     aliases: list[str] = Field(default_factory=list)
     summary: str = ""
-    details: str | None = None
+    details: Optional[str] = None
     ecosystem: str
     package_name: str
 
@@ -69,11 +69,11 @@ class Evidence(BaseModel):
 class DependencyFacts(BaseModel):
     is_direct: bool
     installed_version: str
-    fixed_version: str | None = None
-    latest_version: str | None = None
-    major_versions_behind: int | None = None
+    fixed_version: Optional[str] = None
+    latest_version: Optional[str] = None
+    major_versions_behind: Optional[int] = None
     is_dev_dependency: bool = False
-    dependency_path: list[str] | None = None  # from Phase 6; None = unknown
+    dependency_path: Optional[List[str]] = None  # from Phase 6; None = unknown
     package_manager: str
 
 
@@ -101,7 +101,7 @@ class VerdictEvidence(BaseModel):
 
 class RemediationStrategy(BaseModel):
     strategy: Literal["direct-bump", "override"]
-    direct_dependency: str | None = None
+    direct_dependency: Optional[str] = None
 
 
 class AlternativeConsidered(BaseModel):
@@ -114,7 +114,7 @@ class AssessResponse(BaseModel):
     confidence: Literal["low", "medium", "high"]
     evidence: list[VerdictEvidence] = Field(default_factory=list)
     recommendation: Literal["upgrade", "replace", "mitigate", "accept"]
-    target_version: str | None = None
+    target_version: Optional[str] = None
     reasoning: str
     breaking_change_risk: Literal["low", "medium", "high"] = "low"
     breaking_change_note: str = ""
@@ -141,7 +141,7 @@ class DraftIssueRequest(BaseModel):
     summary: str
     reasoning: str
     evidence: list[VerdictEvidence] = Field(default_factory=list)
-    target_version: str | None = None
+    target_version: Optional[str] = None
     recommendation: str
 
 
