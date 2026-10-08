@@ -7,7 +7,7 @@ Read this file before touching anything in the repository.
 ---
 
 ## 1. What GitHygiene Does
-/btw
+
 GitHygiene gives developers — students, solo maintainers, small teams — a single dashboard showing the security and health of every GitHub repository they own.
 
 **Core loop:**
@@ -299,7 +299,11 @@ When asked to raise a PR:
 
 ### Attribution
 
-**Never add Claude as a co-author in commit messages.** Do not append any `Co-Authored-By: Claude` line to commits. Commits are authored by the team members only.
+End every commit message with:
+
+```
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+```
 
 ---
 
