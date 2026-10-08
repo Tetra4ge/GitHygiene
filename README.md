@@ -551,6 +551,8 @@ Verify `GET http://localhost:4000/health` returns `{ "postgres": "ok", "neo4j": 
 
 **Devpost Project:** [https://devpost.com/software/githygiene](https://devpost.com/software/githygiene)
 
+**Blog Post:** [GitHygiene: Does This Vulnerability Actually Matter in My Code?](https://dev.to/prajwal_priyadarshan/githygiene-does-this-vulnerability-actually-matter-in-my-code-e0b)
+
 ---
 
 ## Credits and License
