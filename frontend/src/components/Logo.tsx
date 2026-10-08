@@ -12,11 +12,11 @@ export default function Logo({
       <img src="/favicon.svg" alt="" className="h-7 w-7 shrink-0" />
       <span className="flex flex-col leading-none min-w-0">
         <span className="font-logo text-lg tracking-tight text-paper truncate">
-          Poly<span className="text-gradient">glot</span>
+          Git<span className="text-gradient">Hygiene</span>
         </span>
         {withTag && (
           <span className="mt-1 text-[10px] font-semibold tracking-[0.2em] text-mist uppercase truncate">
-            Devops Platform
+            Hacktoberfest 2026
           </span>
         )}
       </span>

@@ -7,7 +7,7 @@ export default function Footer() {
         <div className="flex flex-col items-center gap-2 sm:items-start">
           <Logo />
           <p className="text-[12px] text-mist">
-            Repository intelligence, unified.
+            Dependency security intelligence, unified.
           </p>
         </div>
 
