@@ -14,13 +14,24 @@ flowchart LR
     S --> REG[npm / PyPI registries]
     S --> PG[(Supabase Postgres)]
     S --> N4J[(Neo4j Aura)]
-    S --> LLM[LLM API]
+    S --> AI[ai-service FastAPI]
+    AI --> GEM[Gemini API - Gemma 4]
 ```
+
+`api-gateway` assembles grounded context from Postgres, Neo4j and GitHub and
+posts it to `ai-service`, which owns prompts and model calls only. `ai-service`
+needs no database credentials. See [AI_DESIGN.md](AI_DESIGN.md) §4 and
+`phases/Phase_07.md` §2.
 
 The client talks only to Supabase Auth (to sign in) and to the Express API. Every other service is called from the server, so no service key or API key ever reaches the browser.
 
 **Scan pipeline:**
-Fetch manifests from GitHub → parse into a package list → query OSV for vulnerabilities → query registries for latest versions → compute score → save to Postgres → write graph to Neo4j → notify
+Fetch manifests from GitHub → parse into a package list (direct + transitive) → query OSV for vulnerabilities → query registries for latest versions → compute score → save to Postgres → write graph to Neo4j → notify
+
+**Analysis pipeline** (per finding, on demand): advisory text → Stage 1 extracts
+the vulnerable symbols (LLM) → Stage 2 searches the repository's own code for
+them (deterministic) → Stage 3 judges reachability and recommends a remediation
+(LLM). Specified in [AI_DESIGN.md](AI_DESIGN.md) §4.
 
 ## 2. Tech Stack
 
@@ -31,16 +42,17 @@ Fetch manifests from GitHub → parse into a package list → query OSV for vuln
 | Auth | Supabase Auth (GitHub OAuth) | Sign-in and sessions |
 | Database | Supabase Postgres via `@supabase/supabase-js` | Users, repositories, scans, findings, reports |
 | Graph | Neo4j Aura Free via `neo4j-driver` | Cross-repository dependency graph |
-| AI | LLM API behind a single wrapper module | Explanations, upgrade plans, summaries |
+| AI | Gemma 4 (26B A4B + 31B) via the Gemini API, from a FastAPI `ai-service` | Vulnerable-surface extraction; reachability and remediation verdicts |
 | External data | GitHub REST API, OSV.dev, npm registry, PyPI JSON API | Repositories, vulnerabilities, package metadata |
 
 ### Technical decisions
 - **OSV instead of a self-hosted CVE dataset.** OSV is open, needs no API key, matches by exact package and version, and already aggregates GitHub Security Advisories and ecosystem databases. It removes the need to load and maintain vulnerability data ourselves.
 - **Lockfile as the source of the dependency tree.** `package-lock.json` already contains every resolved transitive package and version, so the full tree is available without running `npm install` on the server.
 - **Neo4j only for what it is good at.** Scan results are stored in Postgres. The graph holds just packages, their edges, and advisories, and answers the multi-hop questions (blast radius, shared dependencies). If the graph is unavailable, scanning and the dashboard still work.
-- **One Express service.** The AI code is a module inside the API, not a separate service. One deployable is easier to run, debug, and demo in a day.
+- **AI in its own service.** `api-gateway` (Node) owns data, auth and context assembly; `ai-service` (Python) owns prompts and model calls. This is what the codebase already assumes, and it keeps the LLM key out of the service that holds the database.
+- **Deterministic retrieval between two model calls.** The model is never asked *whether* code calls something — only to interpret code it has been shown. Every repository claim is citable to a file and line. This is the design decision the product's credibility rests on.
 - **Server-only data access.** Row Level Security is enabled on every table with no client policies; only the server, using the service role key, reads and writes. Every query filters by the authenticated user's id.
-- **Manifests are not stored.** They are fetched, parsed, and discarded; only the extracted package list is saved.
+- **Manifests are stored, source code is not.** Manifests go to Supabase Storage. The repository tarball that Stage 2 searches is extracted to a temporary directory and deleted when the scan ends; only the matched snippets are retained, as evidence attached to a finding.
 
 ## 3. Repository Layout
 
@@ -160,11 +172,31 @@ The formula is intentionally simple and shown in the UI, so a score can always b
 
 ## 9. AI Integration
 
-- All LLM calls go through `server/src/services/llm.js`, which exposes one function and reads the provider key and model name from the environment. Swapping providers touches only that file.
-- Prompts are built from the scan's stored data: package name, installed version, fixed version, advisory summary, and dependency path. The model is told to use only that data and to say so when it lacks information.
-- Results are saved to `ai_reports` with the model name, so a repeated request returns the stored result instead of calling the model again.
-- AI output is labelled as AI-generated in the UI.
-- The provider and model actually used must be recorded in the README's "Open Source and AI Usage" section.
+Full specification: **[AI_DESIGN.md](AI_DESIGN.md)**. Summary:
+
+| | Stage 1 — extraction | Stage 3 — reasoning |
+|---|---|---|
+| Model | Gemma 4 26B A4B (`gemma-4-26b-a4b-it`) | Gemma 4 31B (`gemma-4-31b-it`) |
+| Access | Gemini API | Gemini API |
+| Licence | Apache 2.0 | Apache 2.0 |
+| Task | Advisory prose → vulnerable symbols, JSON | Evidence + code → reachability verdict and remediation, JSON |
+| Thinking | minimal | high |
+
+Stage 2, between them, is deterministic code search in `api-gateway` — no model.
+
+- The model sees only data supplied in the message; it is never asked to recall
+  a package, version or advisory from training.
+- Both stages return JSON validated against a schema, enforced through the
+  Gemini API's function calling. A response that fails validation is retried
+  once, then surfaced as unavailable — never half-parsed, never shown as prose.
+- Every claim about the repository cites a file and line that Stage 2 returned.
+- Stage 1 results cache by advisory id platform-wide; Stage 3 by (advisory,
+  repository, dependency version, commit sha). Both store the model id used.
+- **`not_evidenced` is not `safe`.** Static search misses dynamic imports,
+  reflection and transitive callers. The UI must say so.
+- If no key is configured, AI routes return `503` and the rest of the platform
+  is unaffected. The engine is never load-bearing.
+- The models and their roles must be recorded in the README per `AGENTS.md` §5.
 
 ## 10. Environment Variables
 
@@ -179,8 +211,13 @@ SUPABASE_SERVICE_ROLE_KEY=
 NEO4J_URI=
 NEO4J_USERNAME=
 NEO4J_PASSWORD=
-LLM_API_KEY=
-LLM_MODEL=
+# ai-service (Gemini API — Gemma 4; primary path, see AI_DESIGN.md section 7)
+GEMINI_API_KEY=
+GEMMA_MODEL_EXTRACT=gemma-4-26b-a4b-it
+GEMMA_MODEL_REASON=gemma-4-31b-it
+# optional local mode (phases/Phase_10.md section 1)
+LLM_PROVIDER=gemini
+OLLAMA_BASE_URL=http://localhost:11434
 
 # client
 VITE_API_URL=http://localhost:4000/api
@@ -190,7 +227,8 @@ VITE_SUPABASE_ANON_KEY=
 
 ## 11. Security and Reliability
 
-- No secrets in source, docs, or commits. The service role key and LLM key are server-only.
+- No secrets in source, docs, or commits. The service role key and the Gemini API key are server-only; the key lives in `ai-service`, which has no database access.
+- Repository source code is fetched for analysis, held in a temporary directory, and deleted when the scan ends. Only matched snippets persist, as evidence. Local mode (`phases/Phase_10.md` §1) exists for users who do not want snippets leaving the machine at all.
 - CORS restricted to `CLIENT_ORIGIN`.
 - Every database query is scoped to `req.user.id`; a user can never read another user's repository by guessing an id.
 - Input from external sources (manifest contents, API responses) is parsed defensively; a malformed manifest fails that scan with a readable error instead of crashing the server.
