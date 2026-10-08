@@ -575,15 +575,15 @@ Verify `GET http://localhost:4000/health` returns `{ "postgres": "ok", "neo4j": 
 ## Submission Checklist
 
 - [x] Project title and description added
-- [ ] All team members listed
+- [x] All team members listed
 - [x] Problem clearly explained
 - [x] Reason for choosing the problem explained
 - [x] Solution and key features documented
 - [x] Innovation and differentiation explained
 - [x] Architecture included
 - [x] Technical implementation documented
-- [ ] Work completed during the hackathon documented
-- [ ] Team contributions documented
+- [x] Work completed during the hackathon documented
+- [x] Team contributions documented
 - [ ] Working application is functional
 - [ ] Live application link added where applicable
 - [ ] Demo video added
@@ -591,7 +591,7 @@ Verify `GET http://localhost:4000/health` returns `{ "postgres": "ok", "neo4j": 
 - [ ] Setup and usage instructions tested
 - [ ] Challenges and learnings documented
 - [ ] Devpost submission completed
-- [ ] Devpost link added
+- [x] Devpost link added
 - [x] Credits added
 - [x] License added
 - [x] Repository is organized and complete
