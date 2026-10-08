@@ -3,7 +3,7 @@ const { getCallerContext } = require('../utils/rbac.util');
 
 /**
  * Controller to synchronize GitHub repository lists within a secure SQL transaction.
- * Satisfies the DBMS requirements of Atomicity (Rollback on failure) and Upserts (ON CONFLICT).
+ * Uses transactions for atomicity (rollback on failure) and upserts (ON CONFLICT) for idempotent syncing.
  */
 const syncRepositories = async (req, res) => {
   const { org_id, project_name, repos } = req.body;
@@ -93,7 +93,7 @@ const syncRepositories = async (req, res) => {
  * Controller to fetch repositories. Admins see every repository across every
  * organization on the platform (with the owning org attached so the UI can
  * tell them apart); everyone else sees only their own organization's repos.
- * Demonstrates relational algebra (JOINS).
+ * Fetches repository details with joined scan data.
  */
 const getRepositories = async (req, res) => {
   const userId = req.user.sub || req.user.user_id;
