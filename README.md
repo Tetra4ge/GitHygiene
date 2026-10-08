@@ -546,6 +546,27 @@ Verify `GET http://localhost:4000/health` returns `{ "postgres": "ok", "neo4j": 
 </table>
 
 ---
+## Challenges and Learnings
+
+Building GitHygiene required navigating a complex intersection of static analysis, graph databases, and generative AI. Here are the most significant challenges we encountered and what we learned from them:
+
+### 1. Grounding the AI to Prevent Hallucinations
+**The Challenge:** Language models are great at explaining CVEs, but they are notoriously bad at determining if a vulnerability is *actually* exploitable in a codebase. If we just asked the AI, "Does this repo use the vulnerable code?", it would often guess or hallucinate paths.
+**The Learning:** We learned to decouple the analysis. We only use Gemma 4 for what it's good at: extracting function names from advisory prose (Stage 1) and judging contextual risk (Stage 3). The actual "Code Evidence Search" (Stage 2) is strictly deterministic regex searching against the repo's tarball. *By forcing the AI to only cite files found by the deterministic search, we completely eliminated hallucinated call paths.*
+
+### 2. Enforcing Structured AI Outputs
+**The Challenge:** We needed the AI service to communicate reliably with our Node.js API Gateway, but standard text generation is too unpredictable for automated pipelines.
+**The Learning:** We integrated the Gemini API's `responseSchema` feature with Pydantic in our Python FastAPI service. This forced Gemma 4 to respond in strict JSON formats. We learned that failing closed (e.g., throwing a 502 if the JSON didn't match) is far safer than trying to parse a broken AI response in a security tool.
+
+### 3. The Neo4j vs. Postgres Divide
+**The Challenge:** Modeling transitive dependencies in a standard SQL database requires heavy, recursive CTE queries that are difficult to scale. 
+**The Learning:** We adopted a polyglot persistence strategy. We learned to use Postgres for what it does best (auth, static scan logs, and caching AI assessments) and offloaded the cross-repository dependency mappings to Neo4j. This allowed us to calculate the exact "Blast Radius" of a vulnerability across an entire organization using a single, highly efficient Cypher graph traversal. 
+
+### 4. Security by Architecture
+**The Challenge:** Handling user codebase data alongside AI prompts introduced a risk of exposing database credentials if the AI service was ever compromised.
+**The Learning:** We strictly isolated our services. The FastAPI (`ai-service`) holds the Gemini API keys but has zero database credentials. The Node.js (`api-gateway`) holds the database keys but handles no AI prompts. The Gateway fetches the data, passes the isolated context to the AI service, and caches the result. 
+
+
 
 ## Devpost Submission
 
