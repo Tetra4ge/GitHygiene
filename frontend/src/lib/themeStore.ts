@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 export type Theme = 'dark' | 'light';
 
-const STORAGE_KEY = 'polyglot.theme';
+const STORAGE_KEY = 'githygiene.theme';
 
 /** Mirrors the inline script in index.html that sets this before first paint. */
 function readInitialTheme(): Theme {

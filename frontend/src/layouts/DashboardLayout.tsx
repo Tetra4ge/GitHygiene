@@ -53,7 +53,7 @@ const NAV_GROUPS: NavGroup[] = [
   }
 ];
 
-const SIDEBAR_KEY = 'polyglot.sidebar-open';
+const SIDEBAR_KEY = 'githygiene.sidebar-open';
 
 /**
  * Shared chrome for every /dashboard/* route: a slim top bar, a collapsible

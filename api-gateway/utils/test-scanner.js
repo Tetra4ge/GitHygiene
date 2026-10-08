@@ -6,8 +6,8 @@ require('dotenv').config();
 /**
  * Phase 6 verification: proves the Security Scanner engine
  *   1) correctly correlates dependencies against CVEs via SQL JOIN,
- *   2) populates the dependency_vulnerabilities junction table (3NF),
- *   3) and — the key DBMS concurrency demo — that firing two identical
+ *   2) populates the dependency_vulnerabilities junction table,
+ *   3) and that firing two identical
  *      scan requests at the exact same repository simultaneously does NOT
  *      produce duplicate alerts, because SELECT ... FOR UPDATE serializes
  *      the two transactions on the repository row.
@@ -117,7 +117,7 @@ async function run() {
       resetClient.release();
     }
 
-    // --- Test 2: Concurrency demo — fire two identical scans simultaneously ---
+    // --- Test 2: Concurrent scan test — fire two identical scans simultaneously ---
     console.log('⚡ Firing two concurrent scan requests at the same repository...');
     const [scanA, scanB] = await Promise.all([
       axios.post(`${API_URL}/api/v1/scanner/scan`, { repository_id: repositoryId }, authHeaders),

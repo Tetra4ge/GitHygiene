@@ -1,7 +1,7 @@
 const { pgPool } = require('../config/db.config');
 
 /**
- * Middleware to restrict route access based on BCNF public users table role check.
+ * Middleware to restrict route access based on the user role stored in the profiles table.
  * Admins automatically bypass role restrictions.
  * 
  * @param {string|string[]} allowedRoles Single role string or array of allowed roles.
@@ -18,7 +18,7 @@ const requireRole = (allowedRoles) => {
         });
       }
 
-      // Query role via raw SQL parameterized input to satisfy DBMS safety constraints
+      // Query the user role using a parameterised query to prevent SQL injection
       const result = await pgPool.query(
         'SELECT role FROM users WHERE user_id = $1',
         [userId]

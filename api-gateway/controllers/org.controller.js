@@ -2,7 +2,7 @@ const { pgPool } = require('../config/db.config');
 const { getCallerContext } = require('../utils/rbac.util');
 
 /**
- * Controller to handle organization creation via raw SQL.
+ * Controller to handle organization creation.
  * REST access restricted to administrators and managers.
  */
 const createOrg = async (req, res) => {

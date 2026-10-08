@@ -6,7 +6,7 @@
 // This project has no real CVE-to-package feed (see seed-cves.js), so the
 // match is simulated the same way phases/Phase_06.md describes: an ILIKE
 // search for the package name inside each CVE's description. That's enough
-// to demonstrate the relational-algebra and normalization requirements this
+// The scanner cross-references dependencies against the CVE dataset and
 // phase is actually graded on, even though it isn't how a production scanner
 // would work.
 
@@ -15,7 +15,7 @@
  * transaction. Caller owns BEGIN/COMMIT/ROLLBACK — this function does not
  * manage the transaction boundary itself, so it can be composed with the
  * row-lock step in scanner.controller.js (and reused as-is by the
- * concurrency demo script, which needs the same lock-then-scan sequence).
+ * the test-scanner script, which uses the same lock-then-scan sequence).
  */
 // Chunk size for the batched multi-row INSERTs below — same technique and
 // same reasoning as seed-cves.js's earlier batch loop: one round-trip per
@@ -49,7 +49,7 @@ async function performScan(client, repositoryId) {
     // multi-row INSERT per batch. ON CONFLICT DO NOTHING makes this
     // idempotent across repeated scans — re-scanning the same repo never
     // creates a duplicate (dependency, cve) pairing, which is what keeps this
-    // normalized per 3NF/BCNF. RETURNING tells us exactly which pairings in
+    // RETURNING tells us exactly which pairings in
     // this batch were newly inserted vs. already existed from a prior scan.
     const jvPlaceholders = [];
     const jvValues = [];

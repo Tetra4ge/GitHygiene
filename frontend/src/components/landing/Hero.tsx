@@ -46,7 +46,7 @@ export default function Hero() {
           transition={{ duration: 0.7, delay: 0.16, ease: 'easeOut' }}
           className="mx-auto mt-6 max-w-xl text-center text-[15px] leading-relaxed text-mist"
         >
-          Polyglot unifies GitHub analytics, dependency security, and a live Neo4j
+          GitHygiene unifies GitHub repository scanning, dependency security, and a live Neo4j
           knowledge graph into one AI-driven command center - so every repo, package,
           and CVE stays visible before it becomes a problem.
         </motion.p>
@@ -86,7 +86,7 @@ export default function Hero() {
                 <span className="terminal-dot red" />
                 <span className="terminal-dot yellow" />
                 <span className="terminal-dot green" />
-                <span className="terminal-title">polyglot — security overview</span>
+                <span className="terminal-title">githygiene — security overview</span>
               </div>
 
               <div className="grid gap-4 p-5 sm:grid-cols-3 sm:p-6">

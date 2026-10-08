@@ -6,7 +6,7 @@ const { getCallerContext } = require('../utils/rbac.util');
  *
  * Cross-references a repository's `dependencies` against the `cves` dataset
  * using a set-based SQL JOIN, then persists the results into the
- * `dependency_vulnerabilities` junction table (many-to-many, 3NF) and the
+ * `dependency_vulnerabilities` junction table and the
  * `security_alerts` table.
  *
  * Concurrency: the repository row is locked with `SELECT ... FOR UPDATE`
@@ -32,7 +32,7 @@ const runSecurityScan = async (req, res) => {
     // 1. Confirm the repository belongs to the caller's organization AND
     //    acquire a row lock — a concurrent scan on the same repository will
     //    block here until this transaction commits or rolls back, preventing
-    //    duplicate alert generation (DBMS isolation demo). Admins bypass the
+    //    duplicate alert generation. Admins bypass the
     //    organization check — they can scan any repository on the platform.
     const caller = await getCallerContext(userId);
     const ownershipCheck = caller?.role === 'admin'

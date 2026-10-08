@@ -4,9 +4,9 @@ const options = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'Polyglot DevOps API Gateway',
+      title: 'GitHygiene API Gateway',
       version: '1.0.0',
-      description: 'API documentation for Polyglot DevOps - A unified repository intelligence platform',
+      description: 'API documentation for GitHygiene — dependency health and security intelligence platform. Built for Hacktoberfest Hack Day Coimbatore 2026.',
     },
     servers: [
       {
