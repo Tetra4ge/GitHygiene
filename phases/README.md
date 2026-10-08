@@ -8,13 +8,13 @@ checklist. Build must-haves first so the project is always demoable.
 | [1](Phase_01.md) | Project Scaffold & Environment | Must | Mostly built |
 | [2](Phase_02.md) | Sign In with GitHub | Must | Built |
 | [3](Phase_03.md) | Import GitHub Repositories | Must | Built |
-| [4](Phase_04.md) | Manifest Fetching & Dependency Extraction | Must | Direct deps only — transitive walk missing |
-| [5](Phase_05.md) | **Real Vulnerability Data (OSV)** | Must | Not built — **blocks 7–9** |
-| [6](Phase_06.md) | Dependency Graph and Blast Radius | Should | Not built |
-| [7](Phase_07.md) | **AI Engine 1 — Vulnerable Surface & Code Evidence** | Must | Not built |
-| [8](Phase_08.md) | **AI Engine 2 — Reachability Verdict & Remediation** | Must | Not built |
-| [9](Phase_09.md) | Fix-First Ranking, Contribution Intelligence & Dashboard | Must | Not built |
-| [10](Phase_10.md) | Local Mode, Polish, Deployment & Submission | Must | Not built |
+| [4](Phase_04.md) | Manifest Fetching & Dependency Extraction | Must | Built — full lockfile walk, direct + transitive, with edges |
+| [5](Phase_05.md) | **Real Vulnerability Data (OSV)** | Must | Built — OSV batch scan, registry lookups, scoring |
+| [6](Phase_06.md) | Dependency Graph and Blast Radius | Should | Built — write + read, 503 on Neo4j failure (unverified live, see §8 note) |
+| [7](Phase_07.md) | **AI Engine 1 — Vulnerable Surface & Code Evidence** | Must | Built — npm full, PyPI best-effort |
+| [8](Phase_08.md) | **AI Engine 2 — Reachability Verdict & Remediation** | Must | Built — direct-bump/override only (no lift-parent) |
+| [9](Phase_09.md) | Fix-First Ranking, Contribution Intelligence & Dashboard | Must | Built — ranking, dashboard, notifications, issue drafting. Trends not built |
+| [10](Phase_10.md) | Local Mode, Polish, Deployment & Submission | Must | Code-level cleanup done (schema doc, dead deps, README); local mode, actual deployment, demo video and Devpost not done |
 
 ## What changed in this plan
 
