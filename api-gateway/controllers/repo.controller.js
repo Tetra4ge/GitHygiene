@@ -1,5 +1,6 @@
 const { pgPool } = require('../config/db.config');
 const { getCallerContext } = require('../utils/rbac.util');
+const { ensureOsvSchema } = require('../utils/schema-migrations.util');
 
 /**
  * Controller to synchronize GitHub repository lists within a secure SQL transaction.
@@ -99,6 +100,8 @@ const getRepositories = async (req, res) => {
   const userId = req.user.sub || req.user.user_id;
 
   try {
+    await ensureOsvSchema();
+
     const caller = await getCallerContext(userId);
     if (!caller) {
       return res.status(404).json({
@@ -110,6 +113,7 @@ const getRepositories = async (req, res) => {
     if (caller.role === 'admin') {
       const result = await pgPool.query(
         `SELECT r.repository_id, r.repo_name, r.default_branch, r.language, r.last_synced_at,
+                r.security_score, r.risk_level, r.score_breakdown, r.last_scanned_at, r.last_scan_error,
                 p.project_name, o.organization_id, o.organization_name
          FROM repositories r
          JOIN projects p ON r.project_id = p.project_id
@@ -121,6 +125,7 @@ const getRepositories = async (req, res) => {
 
     const result = await pgPool.query(
       `SELECT r.repository_id, r.repo_name, r.default_branch, r.language, r.last_synced_at,
+              r.security_score, r.risk_level, r.score_breakdown, r.last_scanned_at, r.last_scan_error,
               p.project_name, o.organization_id, o.organization_name
        FROM repositories r
        JOIN projects p ON r.project_id = p.project_id

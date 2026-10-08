@@ -2,11 +2,17 @@ import axios, { AxiosError } from 'axios';
 import { supabase } from './supabase';
 import type {
   ApiEnvelope,
+  AssessmentResult,
+  DashboardSummary,
   Dependency,
   DependencyFile,
   GitHubRepo,
+  IssueDraft,
+  Notification,
   Organization,
   OrgMember,
+  OsvFinding,
+  OsvScanResult,
   Repository,
   Role,
   ScanResult,
@@ -186,6 +192,67 @@ export const scannerApi = {
   },
   resolveAlert: async (alertId: string): Promise<SecurityAlert> => {
     const { data } = await api.patch<ApiEnvelope<SecurityAlert>>(`/scanner/alerts/${alertId}/resolve`);
+    return data.data;
+  }
+};
+
+// --- OSV.dev real vulnerability scanner ----------------------------------
+
+export const osvApi = {
+  scan: async (repositoryId: string): Promise<OsvScanResult> => {
+    const { data } = await api.post<ApiEnvelope<OsvScanResult>>('/osv/scan', {
+      repository_id: repositoryId
+    });
+    return data.data;
+  },
+  listFindings: async (repositoryId: string): Promise<OsvFinding[]> => {
+    const { data } = await api.get<ApiEnvelope<OsvFinding[]>>('/osv/findings', {
+      params: { repository_id: repositoryId }
+    });
+    return data.data;
+  }
+};
+
+// --- AI reachability engine (Phases 7-8) ---------------------------------
+
+export interface AssessInput {
+  finding_id: string;
+  owner: string;
+  repo_name?: string;
+  regenerate?: boolean;
+}
+
+export const aiApi = {
+  assess: async (input: AssessInput): Promise<AssessmentResult> => {
+    const { data } = await api.post<ApiEnvelope<AssessmentResult>>('/ai/assess', input, {
+      headers: githubHeaders()
+    });
+    return data.data;
+  },
+  draftIssue: async (assessmentId: string): Promise<IssueDraft> => {
+    const { data } = await api.post<ApiEnvelope<IssueDraft>>('/ai/draft-issue', {
+      assessment_id: assessmentId
+    });
+    return data.data;
+  }
+};
+
+// --- Dashboard & notifications (Phase 9) ---------------------------------
+
+export const dashboardApi = {
+  summary: async (): Promise<DashboardSummary> => {
+    const { data } = await api.get<ApiEnvelope<DashboardSummary>>('/dashboard/summary');
+    return data.data;
+  }
+};
+
+export const notificationsApi = {
+  list: async (): Promise<{ notifications: Notification[]; unreadCount: number }> => {
+    const { data } = await api.get<ApiEnvelope<Notification[]> & { unreadCount: number }>('/notifications');
+    return { notifications: data.data, unreadCount: data.unreadCount };
+  },
+  markRead: async (id: string): Promise<Notification> => {
+    const { data } = await api.patch<ApiEnvelope<Notification>>(`/notifications/${id}/read`);
     return data.data;
   }
 };

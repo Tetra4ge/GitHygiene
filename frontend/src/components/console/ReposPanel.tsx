@@ -223,6 +223,27 @@ export default function ReposPanel({
                 cell: (r) => <span className="text-mist">{r.language || '—'}</span>
               },
               {
+                header: 'Score',
+                cell: (r) =>
+                  r.security_score != null ? (
+                    <span
+                      className={
+                        r.risk_level === 'low'
+                          ? 'text-emerald font-bold'
+                          : r.risk_level === 'medium'
+                            ? 'text-yellow-400 font-bold'
+                            : r.risk_level === 'high'
+                              ? 'text-orange-400 font-bold'
+                              : 'text-danger font-bold'
+                      }
+                    >
+                      {r.security_score}/100 ({r.risk_level})
+                    </span>
+                  ) : (
+                    <span className="text-mist">not scanned</span>
+                  )
+              },
+              {
                 header: 'Last synced',
                 cell: (r) => (
                   <span className="text-mist whitespace-nowrap">

@@ -8,6 +8,11 @@ const githubRoutes = require('./github.routes');
 const manifestRoutes = require('./manifest.routes');
 const parserRoutes = require('./parser.routes');
 const scannerRoutes = require('./scanner.routes');
+const osvRoutes = require('./osv.routes');
+const graphRoutes = require('./graph.routes');
+const aiRoutes = require('./ai.routes');
+const dashboardRoutes = require('./dashboard.routes');
+const notificationRoutes = require('./notification.routes');
 
 // Mount routes under api-gateway namespace
 router.use('/orgs', orgRoutes);
@@ -17,5 +22,10 @@ router.use('/github', githubRoutes);
 router.use('/manifests', manifestRoutes);
 router.use('/parser', parserRoutes);
 router.use('/scanner', scannerRoutes);
+router.use('/osv', osvRoutes);
+router.use('/graph', graphRoutes);
+router.use('/ai', aiRoutes);
+router.use('/dashboard', dashboardRoutes);
+router.use('/notifications', notificationRoutes);
 
 module.exports = router;

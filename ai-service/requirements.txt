@@ -1,31 +1,12 @@
-# Web Framework & Server
+# Web framework & server
 fastapi
 uvicorn[standard]
 
-# Data Validation & Settings
+# Validation & settings — this service holds no database credentials
+# (phases/Phase_07.md §2), so no DB driver belongs here.
 pydantic
 pydantic-settings
 python-dotenv
 
-# Database Drivers
-neo4j
-psycopg2-binary>=2.9.9
-
-# AI & LLM Integration (LangGraph + OpenRouter)
-langchain
-langchain-openai
-langchain-google-genai
-langchain-community
-langgraph
-openai
-
-# Vector Store & Embeddings (Supabase pgvector + HuggingFace)
-pgvector
-langchain-postgres
-
-# Asynchronous Tasks
-celery
-redis
-
-# Utility
+# Gemini API client (Gemma 4, docs/AI_DESIGN.md §7.1) — plain HTTP, no SDK
 requests

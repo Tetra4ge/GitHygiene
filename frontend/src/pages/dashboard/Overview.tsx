@@ -1,19 +1,27 @@
 import { useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Building2, FileCode2, GitBranch, ScanSearch, ShieldCheck, Users } from 'lucide-react';
-import { orgsApi, reposApi, usersApi } from '../../lib/api';
+import { dashboardApi, orgsApi, reposApi, usersApi } from '../../lib/api';
 import { useAuthStore } from '../../lib/authStore';
 import { useResource } from '../../lib/useResource';
-import type { Organization, OrgMember, Repository } from '../../lib/types';
+import type { DashboardSummary, Organization, OrgMember, Repository } from '../../lib/types';
 import { Spinner } from '../../components/console/primitives';
 
 interface OverviewData {
   orgs: Organization[];
   repos: Repository[];
   members: OrgMember[];
+  summary: DashboardSummary | null;
 }
 
-const EMPTY: OverviewData = { orgs: [], repos: [], members: [] };
+const EMPTY: OverviewData = { orgs: [], repos: [], members: [], summary: null };
+
+const RISK_TEXT_COLOR: Record<string, string> = {
+  low: 'text-emerald',
+  medium: 'text-yellow-400',
+  high: 'text-orange-400',
+  critical: 'text-danger'
+};
 
 export default function Overview() {
   const profile = useAuthStore((s) => s.profile);
@@ -21,15 +29,17 @@ export default function Overview() {
   const canSeeTeam = role === 'admin' || role === 'manager';
 
   const fetchOverview = useCallback(async (): Promise<OverviewData> => {
-    const [orgs, repos, members] = await Promise.all([
+    const [orgs, repos, members, summary] = await Promise.all([
       orgsApi.list(),
       reposApi.list(),
-      canSeeTeam ? usersApi.listOrgMembers() : Promise.resolve([] as OrgMember[])
+      canSeeTeam ? usersApi.listOrgMembers() : Promise.resolve([] as OrgMember[]),
+      dashboardApi.summary().catch(() => null)
     ]);
-    return { orgs, repos, members };
+    return { orgs, repos, members, summary };
   }, [canSeeTeam]);
 
   const { data, loading } = useResource(fetchOverview, EMPTY);
+  const summary = data.summary;
 
   const greeting = profile?.full_name || profile?.email || 'there';
 
@@ -104,6 +114,91 @@ export default function Overview() {
           ))}
         </div>
       </div>
+
+      {summary && !summary.empty && (
+        <>
+          <div className="glass border border-border p-5">
+            <h2 className="font-display font-bold text-sm text-paper mb-1">Vulnerabilities by reachability</h2>
+            <p className="text-[10px] text-mist mb-4">
+              The question a plain scanner can't answer — of {Object.values(summary.severityCounts).reduce((a, b) => a + b, 0)}{' '}
+              open findings, how many have an evidenced call path in your own code.
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {['reachable', 'likely_reachable', 'not_evidenced', 'unused', 'unknown']
+                .filter((k) => summary.reachabilityCounts[k])
+                .map((k) => (
+                  <div key={k} className="border border-border/70 p-3">
+                    <div className="font-display text-xl font-bold text-paper">{summary.reachabilityCounts[k]}</div>
+                    <div className="text-[10px] text-mist uppercase tracking-widest mt-1">{k.replace('_', ' ')}</div>
+                  </div>
+                ))}
+              {Object.keys(summary.reachabilityCounts).length === 0 && (
+                <span className="text-[11px] text-mist col-span-4">
+                  No findings yet — run an OSV scan from the Security tab.
+                </span>
+              )}
+            </div>
+          </div>
+
+          {summary.fixFirst.length > 0 && (
+            <div className="glass border border-border p-5">
+              <h2 className="font-display font-bold text-sm text-paper mb-1">Fix this first</h2>
+              <p className="text-[10px] text-mist mb-4">
+                Ranked by impact ÷ effort (severity × reachability × blast radius, over difficulty) — a
+                deterministic sort, not a model call.
+              </p>
+              <div className="flex flex-col gap-2">
+                {summary.fixFirst.map((f) => (
+                  <div
+                    key={f.finding_id}
+                    className="flex items-center justify-between border border-border/70 px-3 py-2 text-[11px]"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="font-bold text-paper">{f.package_name}</span>
+                      <span className="text-mist">in {f.repo_name}</span>
+                      <span className="uppercase text-mist">{f.severity}</span>
+                      <span className="text-azure">{f.reachability.replace('_', ' ')}</span>
+                    </div>
+                    <span className="text-emerald font-mono">rank {f.rank}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {summary.riskiestRepos.length > 0 && (
+            <div className="glass border border-border p-5">
+              <h2 className="font-display font-bold text-sm text-paper mb-4">Riskiest repositories</h2>
+              <div className="flex flex-col gap-2">
+                {summary.riskiestRepos.map((r) => (
+                  <div
+                    key={r.repository_id}
+                    className="flex items-center justify-between border border-border/70 px-3 py-2 text-[11px]"
+                  >
+                    <span className="font-bold text-paper">{r.repo_name}</span>
+                    <span className={`font-bold ${RISK_TEXT_COLOR[r.risk_level] || 'text-mist'}`}>
+                      {r.security_score}/100 ({r.risk_level})
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {summary?.empty && (
+        <div className="glass border border-border p-5 text-center">
+          <p className="text-[12px] text-mist">{summary.message}</p>
+          <Link
+            to="/dashboard/repositories"
+            className="inline-flex items-center gap-2 mt-3 bg-emerald/10 border border-emerald/20 text-emerald px-3.5 py-2 text-xs font-bold hover:bg-emerald/20 transition-all"
+          >
+            <GitBranch size={13} />
+            Import a repository
+          </Link>
+        </div>
+      )}
 
       {role === 'admin' && (
         <div className="flex items-start gap-2 border border-emerald/20 bg-emerald/5 text-emerald p-3 text-[11px] leading-relaxed">
