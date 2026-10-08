@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { Building2, FileCode2, GitBranch, ScanSearch, ShieldCheck, Users } from 'lucide-react';
+import { Building2, FileCode2, GitBranch, ScanSearch, ShieldAlert, ShieldCheck, Users } from 'lucide-react';
 import { dashboardApi, orgsApi, reposApi, usersApi } from '../../lib/api';
 import { useAuthStore } from '../../lib/authStore';
 import { useResource } from '../../lib/useResource';
@@ -64,7 +64,8 @@ export default function Overview() {
   const actions = [
     { to: '/dashboard/repositories', label: 'Repositories', icon: GitBranch },
     { to: '/dashboard/manifests', label: 'Manifests', icon: FileCode2 },
-    { to: '/dashboard/scanner', label: 'Security Scanner', icon: ScanSearch },
+    { to: '/dashboard/security', label: 'Security', icon: ShieldAlert },
+    { to: '/dashboard/scanner', label: 'Legacy Scanner', icon: ScanSearch },
     ...(canSeeTeam ? [{ to: '/dashboard/team', label: 'Team', icon: Users }] : []),
     ...(canSeeTeam ? [{ to: '/dashboard/organizations', label: 'Organizations', icon: Building2 }] : [])
   ];

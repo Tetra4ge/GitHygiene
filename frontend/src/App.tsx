@@ -12,6 +12,7 @@ import Manifests from './pages/dashboard/Manifests';
 import Scanner from './pages/dashboard/Scanner';
 import Team from './pages/dashboard/Team';
 import Profile from './pages/dashboard/Profile';
+import Security from './pages/dashboard/Security';
 import { Terminal } from 'lucide-react';
 
 // Route protection wrapper for dashboard access
@@ -93,6 +94,7 @@ function App() {
           <Route path="repositories" element={<Repositories />} />
           <Route path="manifests" element={<Manifests />} />
           <Route path="scanner" element={<Scanner />} />
+          <Route path="security" element={<Security />} />
           <Route path="team" element={<Team />} />
           <Route path="profile" element={<Profile />} />
         </Route>

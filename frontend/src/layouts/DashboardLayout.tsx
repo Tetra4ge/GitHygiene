@@ -9,6 +9,7 @@ import {
   LogOut,
   PanelLeft,
   ScanSearch,
+  ShieldAlert,
   UserCog,
   Users
 } from 'lucide-react';
@@ -42,7 +43,8 @@ const NAV_GROUPS: NavGroup[] = [
       { to: '/dashboard/organizations', label: 'Organizations', icon: Building2, roles: ['admin', 'manager'] },
       { to: '/dashboard/repositories', label: 'Repositories', icon: GitBranch },
       { to: '/dashboard/manifests', label: 'Manifests', icon: FileCode2 },
-      { to: '/dashboard/scanner', label: 'Security Scanner', icon: ScanSearch }
+      { to: '/dashboard/security', label: 'Security', icon: ShieldAlert },
+      { to: '/dashboard/scanner', label: 'Legacy Scanner', icon: ScanSearch }
     ]
   },
   {
