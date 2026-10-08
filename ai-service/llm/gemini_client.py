@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Optional, Type
 
 import requests
 from pydantic import BaseModel, ValidationError
@@ -82,13 +83,13 @@ def generate_structured(
     system_prompt: str,
     user_prompt: str,
     response_schema: dict,
-    result_model: type[BaseModel],
+    result_model: Type[BaseModel],
 ) -> BaseModel:
     """Calls Gemini, validates the JSON against `result_model`, retries once
     on a validation failure, then raises AIValidationError — never returns a
     half-parsed or unvalidated result."""
 
-    last_error: Exception | None = None
+    last_error: Optional[Exception] = None
     prompt = user_prompt
 
     for attempt in range(2):
