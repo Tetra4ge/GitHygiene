@@ -3,9 +3,11 @@ import { supabase } from './supabase';
 import type {
   ApiEnvelope,
   AssessmentResult,
+  DashboardSummary,
   Dependency,
   DependencyFile,
   GitHubRepo,
+  Notification,
   Organization,
   OrgMember,
   OsvFinding,
@@ -224,6 +226,26 @@ export const aiApi = {
     const { data } = await api.post<ApiEnvelope<AssessmentResult>>('/ai/assess', input, {
       headers: githubHeaders()
     });
+    return data.data;
+  }
+};
+
+// --- Dashboard & notifications (Phase 9) ---------------------------------
+
+export const dashboardApi = {
+  summary: async (): Promise<DashboardSummary> => {
+    const { data } = await api.get<ApiEnvelope<DashboardSummary>>('/dashboard/summary');
+    return data.data;
+  }
+};
+
+export const notificationsApi = {
+  list: async (): Promise<{ notifications: Notification[]; unreadCount: number }> => {
+    const { data } = await api.get<ApiEnvelope<Notification[]> & { unreadCount: number }>('/notifications');
+    return { notifications: data.data, unreadCount: data.unreadCount };
+  },
+  markRead: async (id: string): Promise<Notification> => {
+    const { data } = await api.patch<ApiEnvelope<Notification>>(`/notifications/${id}/read`);
     return data.data;
   }
 };

@@ -187,6 +187,42 @@ export interface OsvFinding {
   aliases: string[] | null;
 }
 
+export interface FixFirstItem {
+  finding_id: string;
+  repository_id: string;
+  repo_name: string;
+  package_name: string;
+  severity: string;
+  reachability: string;
+  difficulty: 'beginner' | 'intermediate' | 'advanced';
+  rank: number;
+}
+
+export interface DashboardSummary {
+  empty: boolean;
+  message?: string;
+  reposTracked: number;
+  reposScanned: number;
+  averageScore: number | null;
+  severityCounts: Record<string, number>;
+  reachabilityCounts: Record<string, number>;
+  fixFirst: FixFirstItem[];
+  riskiestRepos: Array<{ repository_id: string; repo_name: string; security_score: number; risk_level: RiskLevel }>;
+  ecosystemBreakdown: Array<{ ecosystem: string; count: number }>;
+}
+
+export interface Notification {
+  notification_id: string;
+  organization_id: string;
+  repository_id: string | null;
+  repo_name: string | null;
+  type: string;
+  title: string;
+  body: string | null;
+  is_read: boolean;
+  created_at: string;
+}
+
 /** Every api-gateway controller wraps its payload in this envelope. */
 export interface ApiEnvelope<T> {
   success: boolean;

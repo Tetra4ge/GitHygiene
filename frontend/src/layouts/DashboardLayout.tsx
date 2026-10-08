@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
+  Bell,
   Building2,
   FileCode2,
   GitBranch,
@@ -12,8 +13,8 @@ import {
   Users
 } from 'lucide-react';
 import { useAuthStore } from '../lib/authStore';
-import { apiError, usersApi } from '../lib/api';
-import type { Role } from '../lib/types';
+import { apiError, notificationsApi, usersApi } from '../lib/api';
+import type { Notification, Role } from '../lib/types';
 import { Alert } from '../components/console/primitives';
 import ThemeToggle from '../components/ThemeToggle';
 import Logo from '../components/Logo';
@@ -66,6 +67,46 @@ export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem(SIDEBAR_KEY) === 'true');
   const location = useLocation();
 
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
+
+  // Poll every 30s while the tab is visible (phases/Phase_09.md §6).
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      notificationsApi
+        .list()
+        .then(({ notifications, unreadCount }) => {
+          if (!cancelled) {
+            setNotifications(notifications);
+            setUnreadCount(unreadCount);
+          }
+        })
+        .catch(() => {});
+    };
+    load();
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') load();
+    }, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const handleOpenNotification = async (n: Notification) => {
+    if (!n.is_read) {
+      try {
+        await notificationsApi.markRead(n.notification_id);
+        setNotifications((prev) => prev.map((x) => (x.notification_id === n.notification_id ? { ...x, is_read: true } : x)));
+        setUnreadCount((c) => Math.max(0, c - 1));
+      } catch {
+        // non-critical — leave it unread rather than block the UI
+      }
+    }
+  };
+
   // The Postgres profile drives role-gating across every page, so load it once here.
   useEffect(() => {
     usersApi
@@ -116,6 +157,47 @@ export default function DashboardLayout() {
             <Logo className="min-w-0" />
           </div>
           <div className="flex items-center gap-2 sm:gap-3 shrink-0 pr-4 sm:pr-6">
+            <div className="relative">
+              <button
+                onClick={() => setNotifOpen((v) => !v)}
+                aria-label="Notifications"
+                title="Notifications"
+                className="relative grid h-9 w-9 place-items-center bg-ink-soft border border-border hover:bg-border/60 hover:text-paper transition-all cursor-pointer"
+              >
+                <Bell size={15} />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-danger text-[9px] font-bold text-white rounded-full h-4 min-w-4 px-1 grid place-items-center">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+              {notifOpen && (
+                <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto bg-ink-soft border border-border z-50 shadow-xl">
+                  {notifications.length === 0 ? (
+                    <p className="p-4 text-[11px] text-mist">No notifications yet.</p>
+                  ) : (
+                    notifications.map((n) => (
+                      <button
+                        key={n.notification_id}
+                        onClick={() => void handleOpenNotification(n)}
+                        className={`w-full text-left px-3 py-2.5 border-b border-border/40 last:border-b-0 hover:bg-border/30 transition-all ${
+                          n.is_read ? 'opacity-60' : ''
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          {!n.is_read && <span className="h-1.5 w-1.5 rounded-full bg-emerald shrink-0" />}
+                          <span className="text-[11px] font-bold text-paper truncate">{n.title}</span>
+                        </div>
+                        {n.body && <p className="text-[10px] text-mist mt-1 leading-relaxed">{n.body}</p>}
+                        <span className="text-[9px] text-mist/70 block mt-1">
+                          {new Date(n.created_at).toLocaleString()}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
             <ThemeToggle />
             <button
               onClick={() => logout()}
