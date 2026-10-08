@@ -27,15 +27,40 @@ answering the question scanners leave on the user's desk.
 | Repository | library or application, entry-point files by convention, package manager |
 
 **Output:** the JSON schema in `AI_DESIGN.md` §4.3 — `reachability`,
-`confidence`, `evidence[]`, `recommendation`, `target_version`, `reasoning`,
-`breaking_change_risk`, `files_to_change`, `tests_to_run`, `side_effects`,
-`effort`, `alternatives_considered[]`, `insufficient_evidence`.
+`confidence`, `evidence[]`, `recommendation`, `target_version`,
+`remediation_mechanics`, `reasoning`, `breaking_change_risk`,
+`files_to_change`, `tests_to_run`, `side_effects`, `effort`,
+`alternatives_considered[]`, `insufficient_evidence`.
 
 **Model:** `gemma-4-31b-it` via the Gemini API, thinking `high`, function
 calling to enforce the schema. The dense 31B is the stronger coder of the two
 Gemma 4 models available on the API and this is the call where a wrong answer
 costs most; Stage 1's cheaper MoE model handles the volume. See
 `AI_DESIGN.md` §5.1.
+
+### 2.1 Remediation that can actually be followed
+
+`remediation_mechanics` (`AI_DESIGN.md` §4.3) is the part that makes the advice
+usable on transitive findings, which are most findings. "Upgrade lodash" is not
+an instruction a user can follow when nothing in their `package.json` mentions
+lodash. The model picks one of three strategies using the dependency path from
+Phase 6:
+
+- `direct-bump` — the package is a direct dependency; bump it.
+- `lift-parent` — a newer version of the direct dependency resolves to a fixed
+  transitive version.
+- `override` — no parent release fixes it; emit an `overrides` (npm/pnpm),
+  `resolutions` (yarn) or pip constraints entry.
+
+**Generate the patch string deterministically** — template it from the package
+name, the fixed version and the package manager. The model chooses the strategy
+and explains the trade-off; it never writes the stanza. A model-authored
+`overrides` block is the failure mode that looks right, parses fine, and
+resolves nothing.
+
+Only assert `lift-parent` if a registry lookup confirms a parent version whose
+tree contains the fixed package. Without that lookup, the honest strategies are
+`direct-bump` and `override`.
 
 **Why this is an LLM task.** There is no formula. A critical advisory in a
 transitive dev-dependency that never runs in production is noise; a medium one
@@ -92,7 +117,11 @@ Reuse the `ai_reports` table shape from [TRD §5.1](../docs/TRD.md).
 - A repository that depends on the same package but never calls that function
   gets `not_evidenced` or `unused`, and the UI does not call it safe.
 - A transitive finding is explained as transitive, naming the direct dependency
-  that pulls it in.
+  that pulls it in, and its `remediation_mechanics` is something the user can
+  act on — not "upgrade a package you do not depend on."
+- A generated `overrides` / `resolutions` stanza is valid for the detected
+  package manager. Paste one into a real project and confirm the install
+  resolves the fixed version.
 - Recommendations differ across findings in the same repository. If everything
   comes back `upgrade`, the prompt is not using the evidence — fix that before
   demoing.
@@ -104,8 +133,11 @@ Reuse the `ai_reports` table shape from [TRD §5.1](../docs/TRD.md).
 - The API key appears nowhere in the client bundle or the repository.
 
 ## 7. If Short on Time
-Ship the verdict and the evidence panel; drop `tests_to_run`, `side_effects` and
-`alternatives_considered` from the UI (keep them in the JSON). One finding shown
+Ship the verdict, the evidence panel and `remediation_mechanics`; drop
+`tests_to_run`, `side_effects` and `alternatives_considered` from the UI (keep
+them in the JSON). If mechanics must be cut too, support `direct-bump` only and
+say plainly in the UI that transitive remediation is not yet handled — better
+than an instruction the user cannot carry out. One finding shown
 convincingly, cited to a real line, beats five findings summarised.
 
 ## 8. Implementation Status (Current Codebase)
@@ -116,7 +148,7 @@ convincingly, cited to a real line, beats five findings summarised.
 - **`api-gateway/services/ai.service.js` is a one-line stub.**
 - **Provider order must change.** `ai-service/.env.example` lists
   `OPENROUTER_API_KEY` as primary with `GEMINI_API_KEY` as fallback. The Gemma 4
-  challenge requires Gemma **through the Gemini API** (`AI_DESIGN.md` §7), so
+  challenge requires Gemma **through the Gemini API** (`AI_DESIGN.md` §7.1), so
   Gemini becomes the primary path. `GEMMA_MODEL_EXTRACT` and
   `GEMMA_MODEL_REASON` are the two new variables; both need adding to
   `.env.example` when implemented.

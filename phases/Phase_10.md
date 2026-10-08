@@ -16,9 +16,18 @@ real answer — the one thing an API-only competitor structurally cannot offer.
 
 **It is not MVP, for two reasons.** It is an architecture fork, not a config
 flag: Ollama is a local HTTP runtime (`http://localhost:11434`) with no bearer
-key, so the client needs a third branch beside Gemini and OpenRouter, behind an
+key, so the client needs a second branch beside the Gemini API, behind an
 `LLM_PROVIDER` variable that does not exist yet. And on its own it does **not**
 satisfy the Gemma challenge, which requires Gemma through the Gemini API (§3).
+
+**Shape:** one interface in `ai-service/llm/harness.py` —
+`complete(system, prompt, schema, model_role)` — with two backends behind it,
+`gemini` (default) and `ollama`. `model_role` is `extract` or `reason`, mapped
+to a model id per backend, so the Stage 1 / Stage 3 split survives the switch.
+Use **Gemma 4 on both sides**: a different family locally means two sets of
+prompt behaviour to debug for one capability. Do not add a third raw Hugging
+Face `transformers` backend — it ships `torch` and device management for
+capability Ollama already covers.
 
 Prompts and schemas are identical across modes — that is the point. Expect
 weaker extraction on smaller tags; keep schema validation and the single retry,
@@ -38,6 +47,28 @@ General diff review — missing tests, suspicious changes, breaking changes acro
 arbitrary code — is a different product with a different context builder. Out of
 scope; say so rather than half-building it.
 
+## 2.5 Optional: package GitHygiene as an Agent Skill
+
+**Only after Phases 7–8 work.** A skill is a wrapper around a capability, so
+wrapping an engine that does not exist produces a `SKILL.md` describing
+behaviour nothing implements — the kind of claim `AGENTS.md` §6 forbids.
+
+Time-box it to about an hour. The format is light: a folder containing a
+`SKILL.md` with `name` and `description` at minimum plus instructions,
+optionally bundling `scripts/`, `references/` and `assets/`. Wrap the two things
+GitHygiene does that an agent cannot do for itself: scan a repository for real
+advisories, and assess whether a finding is reachable.
+
+```text
+skills/githygiene-auditor/
+├── SKILL.md          # name, description, instructions
+└── scripts/          # thin CLI over the existing API
+```
+
+This is a *qualifying path* for the Best Open-Source AI Project challenge, not a
+requirement — the project already qualifies by building on open-weight models
+(`docs/AI_DESIGN.md` §7.2). Skip it without regret if the hour is not there.
+
 ## 3. Gemma 4 challenge check
 
 The MLH handbook tells judges to confirm the project *uses a Gemma model through
@@ -50,6 +81,20 @@ visible in code or the demo. Before submitting:
 - [ ] The demo shows AI output that is visibly grounded in the repository.
 - [ ] If local mode exists, it is described as an **additional** mode, with the
       Gemini API path as primary.
+
+### 3.1 Best Open-Source AI Project check
+
+A second prize, which this project is already eligible for by building on
+open-weight Gemma 4 — see `docs/AI_DESIGN.md` §7.2. Nothing extra is required;
+these four are:
+
+- [ ] Repository is public and under an open-source licence (Apache 2.0 — done).
+- [ ] The README **links** each model's licence or terms, not just names them.
+      The handbook warns that open-weight does not automatically mean every part
+      of a model is open source.
+- [ ] The README explains in plain language what the AI contributes, and the
+      demo shows the relevant code.
+- [ ] A working demo exists.
 
 ## 4. End-to-end test
 
@@ -75,6 +120,8 @@ anything that crashes or shows a blank screen.
 - Remove debugging code and unused dependencies. In `api-gateway`: `archiver`
   and `multer` are declared and never imported. In `ai-service`: the vector
   store, Celery and Redis lines, unless Phase 7's build actually used them.
+- `ai-service/.DS_Store` is **tracked by git**. Remove it and add `.DS_Store` to
+  `.gitignore` — the handbook's cleanliness item, and a free fix.
 - `docs/DB_SCHEMA.md` **is missing** and `api-gateway/utils/init-db.js` reads it
   to provision a database. A clean clone cannot currently set up its schema.
   Write it — this is the single biggest obstacle to a judge running the project.

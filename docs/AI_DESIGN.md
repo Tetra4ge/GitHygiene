@@ -70,11 +70,147 @@ kind of claim `AGENTS.md` §6 forbids.
 | E | Good First Issue Finder | **Merged into D** | Same output, same consumer, same context. Two features would have been one feature with two buttons. |
 | F | PR Risk Analyzer | **Deferred, narrowed** | Phase 10 stretch, and only for dependency changes in a PR's manifest diff — which reuses the engine unchanged. General diff review is a different product. |
 | G | AI Repository Onboarding | **Cut** | Fails test 4. It explains a repository to someone who could read it, serves a different user than the rest of the product, and is the most generic LLM output in the list. The architecture summary it would produce is the part of the whole brainstorm an LLM with no repository access could fake most convincingly. |
-| H | Local AI Mode (Ollama) | **Optional mode, not MVP** | Real value, wrong priority, and it does **not** satisfy the Gemma challenge on its own (§7). Phase 10. |
+| H | Local AI Mode (Ollama) | **Optional mode, not MVP** | Real value, wrong priority, and it does **not** satisfy the Gemma challenge on its own (§7.1). Phase 10. |
 | I | Security Decision Assistant | **Merged** | The other half of Stage 3. Upgrade / replace / mitigate / accept is one decision; asking the model for a plan and then separately asking it to choose would be two calls arguing with each other. Phase 8. |
 | J | Contribution Impact Score | **Merged into D, deterministic** | Severity, blast radius and call-site count are numbers the database has. Ranking them is a sort, not an inference. Phase 9. |
 
 Ten features became **one engine, one contributor tool, and two deferred modes**.
+
+### 3.1 Second round of proposals
+
+A later batch of five suggestions, assessed against the same six tests. One is
+adopted, two are adjusted, two are rejected.
+
+| # | Proposed | Verdict |
+|---|---|---|
+| K | Multimodal terminal / CI screenshot auditor | **Rejected** — §3.2 |
+| L | Graph-grounded explainer **+ patch generator** | **Explainer already built in (Stage 3); the patch generator is adopted** — §3.3 |
+| M | Pluggable open model harness | **Adopted as a naming and scope clarification, not a new feature** — §3.4 |
+| N | Semantic CVE search (pgvector + MiniLM) | **Rejected** — §3.5 |
+| O | Agent Skill conforming to the Agent Skills standard | **Adopted, time-boxed, after the engine works** — §3.6 |
+
+A correction that applies to three of them: the proposals assumed the hackathon
+*requires* a model harness or an agent skill. It does not. See §7.2 — the
+**Best Open-Source AI Project** challenge lists three qualifying paths and this
+project already satisfies one of them by using open-weight Gemma 4 models. A
+harness and a skill are alternative routes to the same single prize, not
+additional requirements. They stack, but nothing is riding on them.
+
+### 3.2 Multimodal screenshot auditor — rejected
+
+*Proposal: a "drop terminal screenshot" button; Gemma's vision model reads an
+`npm audit` screenshot, extracts packages and versions, and correlates them
+against the database.*
+
+It fails test 3, and it fails it badly. GitHygiene is already connected to the
+repository through GitHub OAuth and reads `package-lock.json` directly. A
+lockfile gives every package, every transitive dependency and an exact version.
+A screenshot of a terminal gives whatever has not yet scrolled off, filtered
+through OCR that can read `4.17.20` as `4.1720`. Using vision to recover data
+the platform can already fetch perfectly is a strictly worse path to a strictly
+worse version of the same input — and then the engine would reason over it.
+
+It is also not needed for the Gemma challenge. Text-and-image handling is listed
+on the challenge page as a *suggested direction*, not a requirement; the only
+stated requirement is that the project uses a Gemma model through the Gemini API
+(§7.1), which both engine stages do.
+
+**The one case that would justify it** is a repository the platform cannot read
+— a colleague's build failure, a CI log from a pipeline with no OAuth
+connection. That is a genuinely different product surface, it is not the demo,
+and it is not worth a feature on Hack Day. If it is ever built, it belongs
+behind "analyse a repository I haven't connected," never as an alternative input
+for repositories that *are* connected.
+
+### 3.3 Patch generator — adopted
+
+*Proposal: alongside the explanation, produce the exact non-breaking fix, such
+as an `overrides` stanza, rather than "just bump package X".*
+
+The explainer half of this proposal is Stage 3, already specified. The patch
+half identifies a real gap, and it is the gap that matters most on transitive
+findings — which is most findings.
+
+Stage 3's output schema assumed a direct bump: `target_version` plus
+`files_to_change`. For a vulnerable package four levels deep, that advice is
+not merely unhelpful, it is impossible to follow — the user has no direct
+dependency on the package, so there is nothing to bump. The actionable answer is
+one of three different things, and choosing between them needs the dependency
+path the graph already has.
+
+Specified as `remediation_mechanics` in §4.3. **The stanza itself is generated
+deterministically** from the package name and the fixed version; the model
+chooses the *strategy*, not the JSON syntax. Asking a language model to
+free-hand a lockfile directive is how you get a config file that looks right and
+silently does nothing.
+
+### 3.4 Model harness — adopted as scope clarification
+
+*Proposal: a unified `ai-service/llm/harness.py` supporting Gemini API, Ollama,
+and local Hugging Face pipelines.*
+
+The cloud/local provider split is already planned (§9, `Phase_10.md` §1), so
+what this adds is a name and a shape, both of which are improvements: one
+interface, two backends, swapped by `LLM_PROVIDER`. Adopted on that basis.
+
+Three corrections to the proposal as written:
+
+- **Gemma 4 on both sides, not Gemma 2 or Mistral.** The proposal suggested
+  `gemma2:2b` or `mistral` locally. Running a different model family locally
+  than remotely means two sets of prompt behaviour to debug and weakens the
+  Gemma story for nothing. Same family, same prompts, same schemas; only the
+  runtime changes.
+- **Gemma 2 is not an option on the Gemini API.** The Gemini API's Gemma page
+  listed exactly two supported models when read on 2026-10-08:
+  `gemma-4-31b-it` and `gemma-4-26b-a4b-it`.
+- **A third local backend is not worth it.** Ollama already covers local
+  inference. Adding a raw Hugging Face `transformers` pipeline beside it means
+  shipping `torch` and managing device placement for the same capability.
+
+**Do not expect this to qualify as a "model harness entry"** for the
+open-source prize on its own. The handbook asks for "an original implementation
+or meaningful changes to an existing open-source harness," and a two-branch
+provider switch is unlikely to read that way. Build it because local inference
+is genuinely useful for private repositories, not for the category.
+
+### 3.5 Semantic CVE search — rejected
+
+*Proposal: embed CVE descriptions with `all-MiniLM-L6-v2` into pgvector, for
+queries like "find prototype pollution vulnerabilities in my parsers".*
+
+The worked example disproves itself. "Prototype pollution" is **CWE-1321** — a
+field on the advisory. `WHERE cwe = 'CWE-1321'` returns exactly the right set,
+instantly, with no index to build, no embedding model to ship and no false
+neighbours. An embedding search over the same descriptions returns
+approximately that set, more slowly. This is the clearest instance in either
+round of a feature that a normal rule does better.
+
+The second half of the query — "in my parsers" — is not answerable from CVE
+description embeddings at all. Which of your dependencies are parsers is a fact
+about your dependency tree, not about the advisory text, so the vector index
+cannot help even in principle.
+
+Note also that `sentence-transformers` is **not** "already installed": it does
+not appear in `ai-service/requirements.txt` and is not importable from the
+service's environment. Adding it means `torch` as well.
+
+§5.2 stands: the MVP needs exact search, not semantic search.
+
+### 3.6 Agent Skill — adopted, conditional
+
+*Proposal: package GitHygiene's scanner and graph traversal as an Agent Skill.*
+
+Genuinely cheap and a named qualifying path for the open-source prize (§7.2).
+The standard is lightweight: a folder containing a `SKILL.md` with `name` and
+`description` at minimum plus instructions, optionally bundling `scripts/`,
+`references/` and `assets/`. The repository is already public and Apache 2.0,
+which the prize also requires.
+
+The constraint is ordering. **A skill is a wrapper around a capability.**
+Wrapping an engine that does not exist yet produces a `SKILL.md` describing
+behaviour nothing implements — which is the exact kind of claim `AGENTS.md` §6
+forbids. So it is scheduled in `Phase_10.md`, after Phases 7–8 work, time-boxed
+to about an hour, and skipped without regret if that hour is not there.
 
 ---
 
@@ -215,6 +351,11 @@ points by convention, package manager).
   "reasoning": "The advisory's named function is called on a request body in an HTTP handler, so the trigger condition the advisory describes is satisfied by this code path.",
   "breaking_change_risk": "low",
   "breaking_change_note": "Patch release within the same major version.",
+  "remediation_mechanics": {
+    "strategy": "direct-bump",
+    "direct_dependency": null,
+    "patch": "npm install lodash@4.17.21"
+  },
   "files_to_change": ["package.json", "package-lock.json"],
   "tests_to_run": ["server/routes/__tests__/user.test.js"],
   "side_effects": [],
@@ -236,6 +377,29 @@ is the single most important honesty constraint in the product.
 `recommendation` is one of `upgrade` · `replace` · `mitigate` · `accept`.
 `accept` is a legitimate output (unreachable, low severity, no fix published) and
 the model is explicitly permitted to return it, with its reason.
+
+**`remediation_mechanics` is what makes the advice followable on transitive
+findings**, which are most findings. "Upgrade lodash" is not an instruction a
+user can carry out when they do not depend on lodash directly — there is nothing
+in their `package.json` to change. The model picks one of three strategies, from
+the dependency path the graph supplies:
+
+| `strategy` | When | `patch` |
+|---|---|---|
+| `direct-bump` | the vulnerable package is a direct dependency | `npm install <pkg>@<fixed>` / the pinned line for pip |
+| `lift-parent` | a newer version of the direct dependency resolves to a fixed transitive version | `npm install <parent>@<version>` |
+| `override` | no parent release fixes it, or the parent is abandoned | an `overrides` (npm/pnpm), `resolutions` (yarn) or constraints entry |
+
+**The `patch` string is generated deterministically** — templated from the
+package name, the fixed version and the detected package manager. The model
+chooses the strategy and explains the trade-off; it never writes the stanza
+itself. A hand-written `overrides` block from a language model is the kind of
+output that looks correct, parses correctly, and silently resolves nothing.
+
+`lift-parent` requires knowing whether a newer parent actually pulls a fixed
+version, which the registry can answer and a guess cannot. If that lookup is not
+implemented, the honest strategies are `direct-bump` and `override` only — do
+not let the model assert `lift-parent` without evidence for it.
 
 ### 4.4 Rules that stay rules
 
@@ -333,6 +497,12 @@ Semantic retrieval answers "find code that looks like X"; this product asks
 search. An embedding index would be slower to build, fuzzier, and harder to
 cite a line number from. Leaving it out is the design decision, not an omission.
 
+The same reasoning rejects semantic search over advisory text (§3.5): the
+attributes people would search by — severity, ecosystem, CWE class, fixed-version
+availability — are already structured fields on the advisory, and a `WHERE`
+clause over them is both faster and exactly right. Reach for embeddings when the
+question has no field to filter on. This product has not run out of fields.
+
 ---
 
 ## 6. Contribution Intelligence (Phase 9)
@@ -364,10 +534,14 @@ without an explicit, separate decision to change that principle.
 
 ---
 
-## 7. The Gemma 4 challenge
+## 7. Hackathon challenges
 
-The hackathon has an optional **Best Use of Gemma 4** partner challenge. The
-MLH Hacktoberfest handbook's own winner-selection note is the constraint that
+Two prizes are in reach, and the project is eligible for both without building
+anything beyond what §4 and §6 already specify.
+
+### 7.1 Best Use of Gemma 4 (partner challenge)
+
+The MLH Hacktoberfest handbook's winner-selection note is the constraint that
 matters: judges are told to *"confirm that the winning project actually uses a
 Gemma model through the Gemini API,"* and that teams should identify the model
 in their README and show the integration in code or a demo.
@@ -375,25 +549,57 @@ in their README and show the integration in code or a demo.
 Two consequences:
 
 1. **The primary inference path must be the Gemini API**, not a local runtime.
-   A project running Gemma only through Ollama would be using Gemma, and would
+   A project running Gemma only through Ollama would be using Gemma and would
    still fail that check as written.
 2. **OpenRouter is demoted.** `ai-service/.env.example` currently lists
    `OPENROUTER_API_KEY` as primary with `GEMINI_API_KEY` as fallback. For this
    challenge the order inverts: Gemini API with a Gemma 4 model is the default
-   path, and anything else is a fallback that the README must not describe as the
+   path, and anything else is a fallback the README must not describe as the
    main one.
 
-Gemma 4 is a genuine fit here rather than a prize-shaped bolt-on: both stages
-need structured output from a model with native function calling, Stage 3 needs
-code reasoning, the 256K context comfortably holds an advisory plus dozens of
-code snippets, and the Apache 2.0 open weights are what make §9's local mode
-possible at all — the same model, same prompts, different runtime. A closed
-model could do Stage 1 and 3 but could never offer the private-repository mode.
+Gemma 4 is a genuine fit rather than a prize-shaped bolt-on: both stages need
+structured output from a model with native function calling, Stage 3 needs code
+reasoning, the 256K context comfortably holds an advisory plus dozens of code
+snippets, and the Apache 2.0 open weights are what make §9's local mode possible
+at all — same model, same prompts, different runtime. A closed model could do
+Stages 1 and 3 but could never offer the private-repository mode.
 
-**Do not claim the challenge is satisfied until the integration exists and is
+### 7.2 Best Open-Source AI Project (runs at every Hack Day)
+
+This challenge asks teams to *"build an original project that uses open-source
+or open-weight AI as an important part of how it works,"* and lists **three
+qualifying paths**: an agent skill, a project built on an open-weight language
+model, or an open-source model harness. Teams may combine them.
+
+**This project already qualifies through the second path.** Gemma 4 is
+open-weight, it is Apache 2.0, and it is not decorative — it is the mechanism
+by which the product's central feature works at all. Nothing further is
+required for eligibility.
+
+That matters for prioritisation: the harness (§3.4) and the agent skill (§3.6)
+are *alternative routes to the same single prize*, not additional requirements.
+Build them if the engine is done and time remains; drop them without regret
+otherwise.
+
+What the challenge does require, and what is cheap to get right:
+
+- [ ] The repository is **public** and under an **open-source licence** —
+      already true, Apache 2.0.
+- [ ] The README **names the model and links its licence or terms**. The
+      handbook warns that "open-weight does not automatically mean that every
+      part of a model is open source," so link, do not merely assert.
+- [ ] The README explains **in plain language** what the AI contributes, and
+      the demo shows the relevant code.
+- [ ] A working demo. The handbook describes strong entries as solving a clear
+      problem with substantial team work behind them.
+
+For reference, the handbook defines a *small* language model as 10B parameters
+or fewer and a *large* one as more than 10B — both Gemma 4 models used here are
+large by that definition on total parameters, though the 26B A4B activates only
+~3.8B per token.
+
+**Do not claim either challenge is satisfied until the integration exists and is
 shown in the demo.**
-
----
 
 ## 8. What this is not
 
@@ -434,9 +640,19 @@ feature that an API-only competitor structurally cannot offer.
 
 **Why it is not MVP:** it is an architecture fork, not a config flag. Ollama is a
 local HTTP runtime (typically `http://localhost:11434`) with no bearer key, so
-the client needs a third branch beside Gemini and OpenRouter, selected by an
-`LLM_PROVIDER` variable that does not exist yet. It also does not satisfy §7 on
-its own. Build it after the engine works, if time remains.
+the client needs a second branch beside the Gemini API, selected by an
+`LLM_PROVIDER` variable that does not exist yet. It also does not satisfy §7.1
+on its own. Build it after the engine works, if time remains.
+
+**Shape:** one interface in `ai-service/llm/harness.py` — `complete(system,
+prompt, schema, model_role)` — with two backends behind it, `gemini` (default)
+and `ollama`. Both stages call the interface; neither knows which backend
+answered. `model_role` is `extract` or `reason`, mapped to a model id per
+backend, so the Stage 1 / Stage 3 split (§5.1) survives the switch.
+
+**Same model family on both sides.** Gemma 4 remotely, Gemma 4 locally. Running
+a different family locally would mean two sets of prompt behaviour to debug for
+one capability, and would weaken the §7.1 story for nothing.
 
 **Sizes** from the Ollama Gemma 4 library page (verify against the page before
 publishing — tag sizes change):

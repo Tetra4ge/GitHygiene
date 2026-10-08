@@ -7,7 +7,7 @@ Read this file before touching anything in the repository.
 ---
 
 ## 1. What GitHygiene Does
-
+/btw
 GitHygiene gives developers — students, solo maintainers, small teams — a single dashboard showing the security and health of every GitHub repository they own.
 
 **Core loop:**
