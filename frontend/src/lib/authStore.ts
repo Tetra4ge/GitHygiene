@@ -26,10 +26,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     // would otherwise clobber a previously-stored, still-valid GitHub token with
     // a Google one. Only trust it as a GitHub token when Login.tsx's pre-redirect
     // flag confirms this OAuth round trip was actually the GitHub button.
-    if (session?.provider_token && sessionStorage.getItem('polyglot.oauth-provider') === 'github') {
+    if (session?.provider_token && sessionStorage.getItem('githygiene.oauth-provider') === 'github') {
       githubToken.set(session.provider_token);
     }
-    sessionStorage.removeItem('polyglot.oauth-provider');
+    sessionStorage.removeItem('githygiene.oauth-provider');
     set({
       session,
       user: session?.user || null,

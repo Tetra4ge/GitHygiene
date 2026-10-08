@@ -20,7 +20,7 @@ export default function Login() {
       // provider — authStore reads this flag to know it's safe to treat that
       // token as a GitHub token, instead of overwriting a valid stored GitHub
       // token with a Google one whenever someone signs in with Google.
-      sessionStorage.setItem('polyglot.oauth-provider', provider);
+      sessionStorage.setItem('githygiene.oauth-provider', provider);
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider,

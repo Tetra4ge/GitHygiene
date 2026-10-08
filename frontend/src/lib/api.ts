@@ -39,7 +39,7 @@ api.interceptors.request.use(async (config) => {
 });
 
 /** GitHub OAuth token, captured from session.provider_token at sign-in. */
-const GITHUB_TOKEN_KEY = 'polyglot.github-token';
+const GITHUB_TOKEN_KEY = 'githygiene.github-token';
 
 export const githubToken = {
   get: () => localStorage.getItem(GITHUB_TOKEN_KEY),
